@@ -18,18 +18,29 @@ import iCalendarPlugin from "@fullcalendar/icalendar";
 
 // There is an issue with FullCalendar RRule support around DST boundaries which is fixed by this monkeypatch:
 // https://github.com/fullcalendar/fullcalendar/issues/5273#issuecomment-1360459342
+//
+// Two further tweaks on top of the upstream snippet:
+//   1. Extend the `between` window to the end of the requested day so that
+//      events that occur late in the day (or as a whole-day occurrence) are
+//      not silently dropped at view boundaries.
+//   2. Read date components in UTC and re-pack them with the dtstart's hours
+//      and minutes. With local-zone reads, recurring weekly events shifted
+//      by a day for hosts east of UTC.
 rrulePlugin.recurringTypes[0].expand = function (errd, fr, de) {
     const hours = errd.rruleSet._dtstart.getHours();
+    const minutes = errd.rruleSet._dtstart.getMinutes();
+    const endDate = de.toDate(fr.end);
+    endDate.setHours(23, 59, 59, 999);
     return errd.rruleSet
-        .between(de.toDate(fr.start), de.toDate(fr.end), true)
+        .between(de.toDate(fr.start), endDate, true)
         .map((d: Date) => {
             return new Date(
                 Date.UTC(
-                    d.getFullYear(),
-                    d.getMonth(),
-                    d.getDate(),
+                    d.getUTCFullYear(),
+                    d.getUTCMonth(),
+                    d.getUTCDate(),
                     hours,
-                    d.getMinutes()
+                    minutes
                 )
             );
         });
