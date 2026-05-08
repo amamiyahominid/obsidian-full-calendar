@@ -68,9 +68,17 @@ export const EventSchema = z.discriminatedUnion("type", [
         type: z.literal("single"),
         date: ParsedDate,
         endDate: ParsedDate.nullable().default(null),
-        completed: ParsedDate.or(z.literal(false))
+        // `completed` is a boolean since this fork stopped persisting the
+        // ISO completion timestamp (the timestamp added churn to frontmatter
+        // diffs without buying anything; status now records intent).
+        // `false` keeps the explicit "task that isn't done" state.
+        completed: ParsedDate.or(z.literal(true))
+            .or(z.literal(false))
             .or(z.literal(null))
             .optional(),
+        // Workflow stage: Backlog / Ready / In Progress / Review / Done.
+        // Free-form string in the schema so callers can extend their own set.
+        status: z.string().optional(),
     }),
     z.object({
         type: z.literal("recurring"),

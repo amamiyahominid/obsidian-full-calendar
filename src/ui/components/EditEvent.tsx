@@ -139,19 +139,30 @@ export const EditEvent = ({
 
     const [calendarIndex, setCalendarIndex] = useState(defaultCalendarIndex);
 
-    const [complete, setComplete] = useState(
-        initialEvent?.type === "single" &&
-            initialEvent.completed !== null &&
-            initialEvent.completed !== undefined
-            ? initialEvent.completed
+    const initialCompleted =
+        initialEvent?.type === "single" ? initialEvent.completed : undefined;
+    const initialStatus =
+        initialEvent?.type === "single" ? initialEvent.status : undefined;
+
+    const [complete, setComplete] = useState<string | boolean | null>(
+        initialCompleted !== null && initialCompleted !== undefined
+            ? initialCompleted
             : false
     );
 
+    // A new event (no title yet) defaults to a task; existing events keep
+    // task-ness only if they explicitly set `completed`.
     const [isTask, setIsTask] = useState(
-        initialEvent?.type === "single" &&
-            initialEvent.completed !== undefined &&
-            initialEvent.completed !== null
+        initialCompleted !== undefined && initialCompleted !== null
+            ? true
+            : !(initialEvent && initialEvent.title)
     );
+
+    const [status, setStatus] = useState<string>(initialStatus || "Backlog");
+
+    // Preserve the original completion value so toggling "Task Event" off
+    // and on doesn't reset a previously-set completion.
+    const originalCompleted = initialCompleted;
 
     const titleRef = useRef<HTMLInputElement>(null);
     useEffect(() => {
@@ -187,7 +198,12 @@ export const EditEvent = ({
                           type: "single",
                           date: date || "",
                           endDate: endDate || null,
-                          completed: isTask ? complete : null,
+                          completed: isTask
+                              ? !!complete
+                              : originalCompleted !== undefined
+                              ? originalCompleted
+                              : null,
+                          status: isTask ? status : undefined,
                       }),
             },
             calendarIndex
@@ -355,15 +371,37 @@ export const EditEvent = ({
                             checked={
                                 !(complete === false || complete === undefined)
                             }
-                            onChange={(e) =>
+                            onChange={(e) => {
+                                const isChecked = e.target.checked;
                                 setComplete(
-                                    e.target.checked
-                                        ? DateTime.now().toISO()
-                                        : false
-                                )
-                            }
+                                    isChecked ? DateTime.now().toISO() : false
+                                );
+                                setStatus(isChecked ? "Done" : "Review");
+                            }}
                             type="checkbox"
                         />
+                        <p>
+                            <label htmlFor="status">Status </label>
+                            <select
+                                id="status"
+                                value={status}
+                                onChange={(e) => {
+                                    const newStatus = e.target.value;
+                                    setStatus(newStatus);
+                                    setComplete(
+                                        newStatus === "Done"
+                                            ? DateTime.now().toISO()
+                                            : false
+                                    );
+                                }}
+                            >
+                                <option value="Backlog">Backlog</option>
+                                <option value="Ready">Ready</option>
+                                <option value="In Progress">In Progress</option>
+                                <option value="Review">Review</option>
+                                <option value="Done">Done</option>
+                            </select>
+                        </p>
                     </>
                 )}
 

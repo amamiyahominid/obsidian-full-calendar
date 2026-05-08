@@ -1,4 +1,3 @@
-import { DateTime } from "luxon";
 import { OFCEvent } from "src/types";
 
 export const isTask = (e: OFCEvent) =>
@@ -15,9 +14,13 @@ export const toggleTask = (event: OFCEvent, isDone: boolean): OFCEvent => {
     if (event.type !== "single") {
         return event;
     }
-    if (isDone) {
-        return { ...event, completed: DateTime.now().toISO() };
-    } else {
-        return { ...event, completed: false };
-    }
+    // Only mirror the workflow status if the event already opted into it
+    // (status is undefined for events that have never set one).
+    const nextStatus =
+        event.status !== undefined
+            ? isDone
+                ? "Done"
+                : "Review"
+            : event.status;
+    return { ...event, completed: isDone, status: nextStatus };
 };
