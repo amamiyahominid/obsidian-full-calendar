@@ -107,9 +107,28 @@ function modifyFrontmatterString(
         page = "\n" + page;
     } else {
         const linesAdded: Set<string | number | symbol> = new Set();
+        // When a YAML key was rewritten and that key originally had a block
+        // value (e.g. multi-line list), drop the indented continuation lines
+        // for that key so we don't end up with the new scalar value followed
+        // by the old list items. We also need to keep continuation lines for
+        // keys we didn't touch (otherwise nested lists like `tags:` get
+        // flattened away on every save).
+        let skipIndented = false;
         // Modify rows in-place.
         for (let i = 0; i < frontmatter.length; i++) {
             const line: string = frontmatter[i];
+
+            // Continuation lines for block-style YAML start with whitespace
+            // or a leading dash and never with an alphabetic key character.
+            if (/^[\s-]/.test(line) && !/^[a-zA-Z_]/.test(line)) {
+                if (skipIndented) {
+                    continue;
+                }
+                newFrontmatter.push(line);
+                continue;
+            }
+            skipIndented = false;
+
             const obj: Record<any, any> | null = parseYaml(line);
             if (!obj) {
                 continue;
@@ -124,6 +143,7 @@ function modifyFrontmatterString(
             const newVal: PrintableAtom | undefined = modifications[key];
             if (newVal !== undefined) {
                 newFrontmatter.push(stringifyYamlLine(key, newVal));
+                skipIndented = true;
             } else {
                 // Just push the old line if we don't have a modification.
                 newFrontmatter.push(line);
