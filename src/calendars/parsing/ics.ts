@@ -1,27 +1,29 @@
 import ical from "ical.js";
 import { OFCEvent, validateEvent } from "../../types";
-import { DateTime } from "luxon";
 import { rrulestr } from "rrule";
 
+// Render an ical.Time as YYYY-MM-DD using the host system's local zone.
+// The original implementation used UTC, which silently shifted dates
+// by ±1 day for users east/west of UTC (most importantly JST users —
+// see obsidian-community/obsidian-full-calendar#311).
 function getDate(t: ical.Time): string {
-    return DateTime.fromSeconds(t.toUnixTime(), { zone: "UTC" }).toISODate();
+    const d = t.toJSDate();
+    const year = d.getFullYear();
+    const month = (d.getMonth() + 1).toString().padStart(2, "0");
+    const day = d.getDate().toString().padStart(2, "0");
+    return `${year}-${month}-${day}`;
 }
 
-function getTime(t: ical.Time): string {
+// HH:MM in the host system's local zone. iCal "VALUE=DATE" entries
+// (i.e. floating all-day) are reported as midnight.
+function getLocalTime(t: ical.Time): string {
     if (t.isDate) {
         return "00:00";
     }
-    return DateTime.fromSeconds(t.toUnixTime(), { zone: "UTC" }).toISOTime({
-        includeOffset: false,
-        includePrefix: false,
-        suppressMilliseconds: true,
-        suppressSeconds: true,
-    });
-}
-
-function extractEventUrl(iCalEvent: ical.Event): string {
-    let urlProp = iCalEvent.component.getFirstProperty("url");
-    return urlProp ? urlProp.getFirstValue() : "";
+    const d = t.toJSDate();
+    const hours = d.getHours().toString().padStart(2, "0");
+    const minutes = d.getMinutes().toString().padStart(2, "0");
+    return `${hours}:${minutes}`;
 }
 
 function specifiesEnd(iCalEvent: ical.Event) {
@@ -33,9 +35,33 @@ function specifiesEnd(iCalEvent: ical.Event) {
 
 function icsToOFC(input: ical.Event): OFCEvent {
     if (input.isRecurring()) {
-        const rrule = rrulestr(
-            input.component.getFirstProperty("rrule").getFirstValue().toString()
+        // Re-anchor the rrule's DTSTART to the local wall-clock value of the
+        // event start, packed into a UTC Date. rrule operates on UTC and
+        // FullCalendar later interprets DTSTART as local time, so we want
+        // "the wall clock the user sees" to drive the recurrence — without
+        // this, weekly events shift by a day around timezone boundaries.
+        const rruleString = input.component
+            .getFirstProperty("rrule")
+            .getFirstValue()
+            .toString();
+        const localStart = input.startDate.toJSDate();
+        const dtstartForRrule = new Date(
+            Date.UTC(
+                localStart.getFullYear(),
+                localStart.getMonth(),
+                localStart.getDate(),
+                localStart.getHours(),
+                localStart.getMinutes(),
+                localStart.getSeconds()
+            )
         );
+        const rrule = rrulestr(rruleString, { dtstart: dtstartForRrule });
+        // Strip the trailing Z so FullCalendar reads DTSTART as a floating
+        // local time rather than UTC.
+        const rruleStr = rrule
+            .toString()
+            .replace(/^DTSTART:(\d{8}T\d{6})Z/m, "DTSTART:$1");
+
         const allDay = input.startDate.isDate;
         const exdates = input.component
             .getAllProperties("exdate")
@@ -50,23 +76,15 @@ function icsToOFC(input: ical.Event): OFCEvent {
             type: "rrule",
             title: input.summary,
             id: `ics::${input.uid}::${getDate(input.startDate)}::recurring`,
-            rrule: rrule.toString(),
+            rrule: rruleStr,
             skipDates: exdates,
-            startDate: getDate(
-                input.startDate.convertToZone(ical.Timezone.utcTimezone)
-            ),
+            startDate: getDate(input.startDate),
             ...(allDay
                 ? { allDay: true }
                 : {
                       allDay: false,
-                      startTime: getTime(
-                          input.startDate.convertToZone(
-                              ical.Timezone.utcTimezone
-                          )
-                      ),
-                      endTime: getTime(
-                          input.endDate.convertToZone(ical.Timezone.utcTimezone)
-                      ),
+                      startTime: getLocalTime(input.startDate),
+                      endTime: getLocalTime(input.endDate),
                   }),
         };
     } else {
@@ -86,8 +104,8 @@ function icsToOFC(input: ical.Event): OFCEvent {
                 ? { allDay: true }
                 : {
                       allDay: false,
-                      startTime: getTime(input.startDate),
-                      endTime: getTime(input.endDate),
+                      startTime: getLocalTime(input.startDate),
+                      endTime: getLocalTime(input.endDate),
                   }),
         };
     }
@@ -124,28 +142,28 @@ export function getEventsFromICS(text: string): OFCEvent[] {
             .map((e) => [e.uid, icsToOFC(e)])
     );
 
-    const recurrenceExceptions = events
-        .filter((e) => e.recurrenceId !== null)
-        .map((e): [string, OFCEvent] => [e.uid, icsToOFC(e)]);
+    const recurrenceExceptions = events.filter((e) => e.recurrenceId !== null);
 
-    for (const [uid, event] of recurrenceExceptions) {
-        const baseEvent = baseEvents[uid];
+    for (const exception of recurrenceExceptions) {
+        const baseEvent = baseEvents[exception.uid];
         if (!baseEvent) {
             continue;
         }
-
-        if (baseEvent.type !== "rrule" || event.type !== "single") {
+        if (baseEvent.type !== "rrule") {
             console.warn(
-                "Recurrence exception was recurring or base event was not recurring",
-                { baseEvent, recurrenceException: event }
+                "Recurrence exception found but base event is not recurring",
+                { baseEvent, recurrenceException: exception }
             );
             continue;
         }
-        baseEvent.skipDates.push(event.date);
+        // Use the original RECURRENCE-ID rather than the moved date so the
+        // exclusion lands on the right slot, even if the exception was moved
+        // to a new day.
+        baseEvent.skipDates.push(getDate(exception.recurrenceId!));
     }
 
     const allEvents = Object.values(baseEvents).concat(
-        recurrenceExceptions.map((e) => e[1])
+        recurrenceExceptions.map((e) => icsToOFC(e))
     );
 
     return allEvents.map(validateEvent).flatMap((e) => (e ? [e] : []));

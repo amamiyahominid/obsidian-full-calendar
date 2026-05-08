@@ -158,7 +158,8 @@ END:VCALENDAR
     "allDay": false,
     "endTime": "12:30",
     "id": "ics::5tt2avr2th0h65homv3b6jeqof@google.com::2022-03-01::recurring",
-    "rrule": "RRULE:FREQ=WEEKLY;BYDAY=TH,TU;WKST=SU",
+    "rrule": "DTSTART:20220301T110000
+RRULE:FREQ=WEEKLY;BYDAY=TH,TU;WKST=SU",
     "skipDates": [],
     "startDate": "2022-03-01",
     "startTime": "11:00",
