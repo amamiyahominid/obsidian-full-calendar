@@ -150,6 +150,37 @@ export function renderCalendar(
                 duration: { days: 3 },
                 buttonText: "3",
             },
+            // Custom N-day views activated by pressing 2/4-9 while a
+            // timeGrid view has focus. 1 and 3 reuse the existing views
+            // above so toolbar buttons keep working.
+            timeGrid2Days: {
+                type: "timeGrid",
+                duration: { days: 2 },
+            },
+            timeGrid4Days: {
+                type: "timeGrid",
+                duration: { days: 4 },
+            },
+            timeGrid5Days: {
+                type: "timeGrid",
+                duration: { days: 5 },
+            },
+            timeGrid6Days: {
+                type: "timeGrid",
+                duration: { days: 6 },
+            },
+            timeGrid7Days: {
+                type: "timeGrid",
+                duration: { days: 7 },
+            },
+            timeGrid8Days: {
+                type: "timeGrid",
+                duration: { days: 8 },
+            },
+            timeGrid9Days: {
+                type: "timeGrid",
+                duration: { days: 9 },
+            },
         },
         firstDay: settings?.firstDay,
         ...(settings?.timeFormat24h && {
@@ -233,5 +264,41 @@ export function renderCalendar(
         longPressDelay: 250,
     });
     cal.render();
+
+    // Number-key shortcut: 1-9 switch to an N-day timeGrid view. Active only
+    // when the calendar (or a descendant) holds keyboard focus, so other
+    // panes and the event-edit modal aren't affected.
+    containerEl.tabIndex = 0;
+    // Focus the calendar on click so the user can start using number keys
+    // without an extra Tab press. Without this, clicks on FullCalendar's
+    // unfocusable inner elements leave focus elsewhere.
+    containerEl.addEventListener("mousedown", () => {
+        if (!containerEl.contains(document.activeElement)) {
+            containerEl.focus();
+        }
+    });
+    containerEl.addEventListener("keydown", (e: KeyboardEvent) => {
+        if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+        if (!cal.view.type.startsWith("timeGrid")) return;
+        const target = e.target as HTMLElement | null;
+        if (target) {
+            if (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+            if (target.isContentEditable) return;
+        }
+        // Top-row digits only — ignoring numpad avoids hijacking accidental
+        // strokes from users with a numeric keypad workflow.
+        if (e.key.length !== 1) return;
+        const n = parseInt(e.key, 10);
+        if (!Number.isInteger(n) || n < 1 || n > 9) return;
+        e.preventDefault();
+        const viewName =
+            n === 1
+                ? "timeGridDay"
+                : n === 3
+                ? "timeGrid3Days"
+                : `timeGrid${n}Days`;
+        cal.changeView(viewName);
+    });
+
     return cal;
 }
