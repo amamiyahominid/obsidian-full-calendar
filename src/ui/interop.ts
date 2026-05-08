@@ -148,24 +148,52 @@ export function toEventInput(
             return null;
         }
         // NOTE: how exdates are handled does not support events which recur more than once per day.
+        // Build each exdate from the skipDate's calendar day plus dtstart's local
+        // wall-clock time, then convert to ISO (UTC) so it lines up with what
+        // rrule emits internally. Pre-fix this used `toISOString().split("T")[1]`
+        // which mixed the dtstart's UTC time onto the exdate's local date and
+        // produced exdates that drifted by the host's UTC offset.
         const exdate = frontmatter.skipDates
             .map((d) => {
-                // Can't do date arithmetic because timezone might change for different exdates due to DST.
-                // RRule only has one dtstart that doesn't know about DST/timezone changes.
-                // Therefore, just concatenate the date for this exdate and the start time for the event together.
                 const date = DateTime.fromISO(d).toISODate();
-                const time = dtstart.toJSDate().toISOString().split("T")[1];
-
-                return `${date}T${time}`;
+                if (!date) {
+                    return undefined;
+                }
+                const local = dtstart.toJSDate();
+                const [year, month, day] = date
+                    .split("-")
+                    .map((p) => parseInt(p, 10));
+                const exdateLocal = new Date(
+                    year,
+                    month - 1,
+                    day,
+                    local.getHours(),
+                    local.getMinutes(),
+                    local.getSeconds()
+                );
+                return exdateLocal.toISOString();
             })
             .flatMap((d) => (d ? d : []));
+
+        // For all-day rrules, anchor DTSTART at noon UTC on the start day so
+        // that hosts both east and west of UTC stay on the same calendar day.
+        // Timed events still use the local-time dtstart so the wall-clock
+        // recurrence is preserved.
+        const rruleDtstart = frontmatter.allDay
+            ? (() => {
+                  const [year, month, day] = frontmatter.startDate
+                      .split("-")
+                      .map((p) => parseInt(p, 10));
+                  return new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+              })()
+            : dtstart.toJSDate();
 
         event = {
             id,
             title: frontmatter.title,
             allDay: frontmatter.allDay,
             rrule: rrulestr(frontmatter.rrule, {
-                dtstart: dtstart.toJSDate(),
+                dtstart: rruleDtstart,
             }).toString(),
             exdate,
         };
