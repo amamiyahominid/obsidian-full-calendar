@@ -199,13 +199,9 @@ export default class EventStore {
      */
     add({ calendar, location, id, event }: AddEventProps): string {
         if (this.store.has(id)) {
-            throw new Error(
-                `Event with given ID "${id}" that was supposed to be added to calendar "${
-                    calendar.id
-                }" already exists in the EventStore within calendar "${this.calendarIndex.getRelated(
-                    new EventID(id)
-                )}".`
-            );
+            // Skip duplicates instead of throwing (some iCal feeds emit
+            // overlapping recurrence exceptions that share an event id).
+            return id;
         }
 
         console.debug("adding event", { id, event, location });
