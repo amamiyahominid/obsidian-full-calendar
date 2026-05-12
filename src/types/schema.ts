@@ -78,7 +78,18 @@ export const EventSchema = z.discriminatedUnion("type", [
             .optional(),
         // Workflow stage: Backlog / Ready / In Progress / Review / Done.
         // Free-form string in the schema so callers can extend their own set.
-        status: z.string().optional(),
+        // metadata-menu's multi-value text type writes the field as a list
+        // (`status:\n  - Done`); unwrap a single-element array so those notes
+        // still validate.
+        status: z.preprocess(
+            (val) =>
+                Array.isArray(val)
+                    ? val.length > 0
+                        ? val[0]
+                        : undefined
+                    : val,
+            z.string().optional()
+        ),
     }),
     z.object({
         type: z.literal("recurring"),
