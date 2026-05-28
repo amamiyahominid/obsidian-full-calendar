@@ -208,6 +208,10 @@ export function renderCalendar(
             }),
 
         editable: modifyEvent && true,
+        // Ensure `event.end` is always populated. Without this, dragging an
+        // all-day event onto the time-grid produces a timed event whose end
+        // is null, and the persisted endTime gets dropped.
+        forceEventDuration: true,
         eventDrop: modifyEventCallback,
         eventResize: modifyEventCallback,
 

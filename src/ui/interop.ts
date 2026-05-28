@@ -264,15 +264,21 @@ export function toEventInput(
 export function fromEventApi(event: EventApi): OFCEvent {
     const isRecurring: boolean = event.extendedProps.daysOfWeek !== undefined;
     const startDate = getDate(event.start as Date);
-    const endDate = getDate(event.end as Date);
+    // When an all-day event is dragged onto the time-grid, FullCalendar may
+    // leave `event.end` null. Fall back to start + 1h so endTime is never lost.
+    const start = event.start as Date;
+    const end =
+        (event.end as Date | null) ??
+        new Date(start.getTime() + 60 * 60 * 1000);
+    const endDate = getDate(end);
     return {
         title: event.title,
         ...(event.allDay
             ? { allDay: true }
             : {
                   allDay: false,
-                  startTime: getTime(event.start as Date),
-                  endTime: getTime(event.end as Date),
+                  startTime: getTime(start),
+                  endTime: getTime(end),
               }),
 
         ...(isRecurring
