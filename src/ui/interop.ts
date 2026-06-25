@@ -196,6 +196,15 @@ export function toEventInput(
                 dtstart: rruleDtstart,
             }).toString(),
             exdate,
+            // Carry the source rule so fromEventApi() can reconstruct an
+            // "rrule" OFCEvent on drag/resize instead of corrupting it into a
+            // single event (which would happen if only `daysOfWeek` decided
+            // the type).
+            extendedProps: {
+                isTask: false,
+                rrule: frontmatter.rrule,
+                skipDates: frontmatter.skipDates,
+            },
         };
 
         if (!frontmatter.allDay) {
@@ -263,6 +272,7 @@ export function toEventInput(
 
 export function fromEventApi(event: EventApi): OFCEvent {
     const isRecurring: boolean = event.extendedProps.daysOfWeek !== undefined;
+    const isRRule: boolean = event.extendedProps.rrule !== undefined;
     const startDate = getDate(event.start as Date);
     // When an all-day event is dragged onto the time-grid, FullCalendar may
     // leave `event.end` null. Fall back to start + 1h so endTime is never lost.
@@ -281,7 +291,16 @@ export function fromEventApi(event: EventApi): OFCEvent {
                   endTime: getTime(end),
               }),
 
-        ...(isRecurring
+        ...(isRRule
+            ? {
+                  type: "rrule",
+                  // Preserve the recurrence rule and its exceptions; only the
+                  // anchor date follows a drag.
+                  rrule: event.extendedProps.rrule,
+                  skipDates: event.extendedProps.skipDates ?? [],
+                  startDate,
+              }
+            : isRecurring
             ? {
                   type: "recurring",
                   daysOfWeek: event.extendedProps.daysOfWeek.map(

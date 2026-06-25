@@ -2,6 +2,16 @@ import { DateTime } from "luxon";
 import * as React from "react";
 import { useEffect, useRef, useState } from "react";
 import { CalendarInfo, OFCEvent } from "../../types";
+import {
+    buildRRule,
+    parseRRule,
+    DEFAULT_RECURRENCE,
+    RecurrenceForm,
+    Frequency,
+    RRULE_WEEKDAYS,
+    WEEKDAY_LABELS,
+    WEEKDAY_POSITIONS,
+} from "./recurrence";
 
 function makeChangeListener<T>(
     setState: React.Dispatch<React.SetStateAction<T>>,
@@ -75,6 +85,98 @@ const DaySelect = ({
     );
 };
 
+const MONTH_LABELS = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+];
+
+const RecurrencePattern = ({
+    frequency,
+    value,
+    onChange,
+}: {
+    frequency: "monthly" | "yearly";
+    value: RecurrenceForm;
+    onChange: (patch: Partial<RecurrenceForm>) => void;
+}) => (
+    <p>
+        {frequency === "yearly" && (
+            <select
+                value={value.month}
+                onChange={(e) =>
+                    onChange({ month: parseInt(e.target.value, 10) })
+                }
+            >
+                {MONTH_LABELS.map((label, i) => (
+                    <option key={i} value={i + 1}>
+                        {label}
+                    </option>
+                ))}
+            </select>
+        )}{" "}
+        <select
+            value={value.dayMode}
+            onChange={(e) =>
+                onChange({
+                    dayMode: e.target.value as RecurrenceForm["dayMode"],
+                })
+            }
+        >
+            <option value="dayOfMonth">on day</option>
+            <option value="weekday">on the</option>
+        </select>{" "}
+        {value.dayMode === "dayOfMonth" ? (
+            <select
+                value={value.monthDay}
+                onChange={(e) =>
+                    onChange({ monthDay: parseInt(e.target.value, 10) })
+                }
+            >
+                {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                    <option key={d} value={d}>
+                        {d}
+                    </option>
+                ))}
+            </select>
+        ) : (
+            <>
+                <select
+                    value={value.position}
+                    onChange={(e) =>
+                        onChange({ position: parseInt(e.target.value, 10) })
+                    }
+                >
+                    {WEEKDAY_POSITIONS.map((p) => (
+                        <option key={p.value} value={p.value}>
+                            {p.label}
+                        </option>
+                    ))}
+                </select>{" "}
+                <select
+                    value={value.weekday}
+                    onChange={(e) => onChange({ weekday: e.target.value })}
+                >
+                    {RRULE_WEEKDAYS.map((code) => (
+                        <option key={code} value={code}>
+                            {WEEKDAY_LABELS[code]}
+                        </option>
+                    ))}
+                </select>
+            </>
+        )}
+    </p>
+);
+
 interface EditEventProps {
     submit: (frontmatter: OFCEvent, calendarIndex: number) => Promise<void>;
     readonly calendars: {
@@ -126,7 +228,9 @@ export const EditEvent = ({
     const [endTime, setEndTime] = useState(initialEndTime);
     const [title, setTitle] = useState(initialEvent?.title || "");
     const [isRecurring, setIsRecurring] = useState(
-        initialEvent?.type === "recurring" || false
+        initialEvent?.type === "recurring" ||
+            initialEvent?.type === "rrule" ||
+            false
     );
     const [endRecur, setEndRecur] = useState("");
 
@@ -134,6 +238,26 @@ export const EditEvent = ({
         (initialEvent?.type === "recurring" ? initialEvent.daysOfWeek : []) ||
             []
     );
+
+    // Monthly/yearly recurrence is stored as an `rrule` event. Seed the form
+    // from an existing rule when editing; otherwise fall back to weekly.
+    const initialRecurrence =
+        initialEvent?.type === "rrule" && initialEvent.rrule
+            ? parseRRule(initialEvent.rrule)
+            : null;
+    const [frequency, setFrequency] = useState<Frequency>(
+        initialRecurrence ? initialRecurrence.frequency : "weekly"
+    );
+    const [recurrence, setRecurrence] = useState<RecurrenceForm>(
+        initialRecurrence ?? DEFAULT_RECURRENCE
+    );
+    // Preserve skip dates (exceptions) across edits of an rrule event.
+    const [skipDates] = useState<string[]>(
+        (initialEvent?.type === "rrule" && initialEvent.skipDates) || []
+    );
+
+    const patchRecurrence = (patch: Partial<RecurrenceForm>) =>
+        setRecurrence((prev) => ({ ...prev, ...patch }));
 
     const [allDay, setAllDay] = useState(initialEvent?.allDay || false);
 
@@ -180,20 +304,30 @@ export const EditEvent = ({
                     ? { allDay: true }
                     : { allDay: false, startTime: startTime || "", endTime }),
                 ...(isRecurring
-                    ? {
-                          type: "recurring",
-                          daysOfWeek: daysOfWeek as (
-                              | "U"
-                              | "M"
-                              | "T"
-                              | "W"
-                              | "R"
-                              | "F"
-                              | "S"
-                          )[],
-                          startRecur: date || undefined,
-                          endRecur: endRecur || undefined,
-                      }
+                    ? frequency === "weekly"
+                        ? {
+                              type: "recurring",
+                              daysOfWeek: daysOfWeek as (
+                                  | "U"
+                                  | "M"
+                                  | "T"
+                                  | "W"
+                                  | "R"
+                                  | "F"
+                                  | "S"
+                              )[],
+                              startRecur: date || undefined,
+                              endRecur: endRecur || undefined,
+                          }
+                        : {
+                              type: "rrule",
+                              startDate: date || "",
+                              rrule: buildRRule({
+                                  ...recurrence,
+                                  frequency,
+                              }),
+                              skipDates,
+                          }
                     : {
                           type: "single",
                           date: date || "",
@@ -325,10 +459,37 @@ export const EditEvent = ({
 
                 {isRecurring && (
                     <>
-                        <DaySelect
-                            value={daysOfWeek}
-                            onChange={setDaysOfWeek}
-                        />
+                        <p>
+                            <label htmlFor="frequency">Repeats </label>
+                            <select
+                                id="frequency"
+                                value={frequency}
+                                onChange={(e) =>
+                                    setFrequency(e.target.value as Frequency)
+                                }
+                            >
+                                <option value="weekly">Weekly</option>
+                                <option value="monthly">Monthly</option>
+                                <option value="yearly">Yearly</option>
+                            </select>
+                        </p>
+
+                        {frequency === "weekly" && (
+                            <DaySelect
+                                value={daysOfWeek}
+                                onChange={setDaysOfWeek}
+                            />
+                        )}
+
+                        {(frequency === "monthly" ||
+                            frequency === "yearly") && (
+                            <RecurrencePattern
+                                frequency={frequency}
+                                value={recurrence}
+                                onChange={patchRecurrence}
+                            />
+                        )}
+
                         <p>
                             Starts recurring
                             <input
@@ -338,16 +499,20 @@ export const EditEvent = ({
                                 // @ts-ignore
                                 onChange={makeChangeListener(setDate, (x) => x)}
                             />
-                            and stops recurring
-                            <input
-                                type="date"
-                                id="endDate"
-                                value={endRecur}
-                                onChange={makeChangeListener(
-                                    setEndRecur,
-                                    (x) => x
-                                )}
-                            />
+                            {frequency === "weekly" && (
+                                <>
+                                    and stops recurring
+                                    <input
+                                        type="date"
+                                        id="endDate"
+                                        value={endRecur}
+                                        onChange={makeChangeListener(
+                                            setEndRecur,
+                                            (x) => x
+                                        )}
+                                    />
+                                </>
+                            )}
                         </p>
                     </>
                 )}
