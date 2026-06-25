@@ -1,4 +1,4 @@
-import { MarkdownView, Notice, Plugin, TFile } from "obsidian";
+import { MarkdownView, Notice, Plugin, TFile, TFolder } from "obsidian";
 import {
     CalendarView,
     FULL_CALENDAR_SIDEBAR_VIEW_TYPE,
@@ -80,11 +80,51 @@ export default class FullCalendarPlugin extends Plugin {
     async onload() {
         await this.loadSettings();
 
+        // Register the auto-task folder before the first cache build so its
+        // events show up on the very first open.
+        if (this.syncAutoTaskFolder()) {
+            await this.saveData(this.settings);
+        }
+
         this.cache.reset(this.settings.calendarSources);
 
         this.registerEvent(
             this.app.metadataCache.on("changed", (file) => {
                 this.cache.fileUpdated(file);
+            })
+        );
+
+        // Auto-register the task folder when it is (re-)created after launch.
+        this.registerEvent(
+            this.app.vault.on("create", (file) => {
+                if (
+                    file instanceof TFolder &&
+                    file.path === this.settings.autoTaskFolder?.trim() &&
+                    this.syncAutoTaskFolder()
+                ) {
+                    this.saveSettings();
+                }
+            })
+        );
+
+        // Drop the auto source when its folder is deleted (a transient
+        // removal, not a user dismissal — re-creating the folder re-adds it).
+        this.registerEvent(
+            this.app.vault.on("delete", (file) => {
+                if (file instanceof TFolder) {
+                    const before = this.settings.calendarSources.length;
+                    this.settings.calendarSources =
+                        this.settings.calendarSources.filter(
+                            (s) =>
+                                !(
+                                    s.type === "local" &&
+                                    s.directory === file.path
+                                )
+                        );
+                    if (this.settings.calendarSources.length !== before) {
+                        this.saveSettings();
+                    }
+                }
             })
         );
 
@@ -208,5 +248,40 @@ export default class FullCalendarPlugin extends Plugin {
         this.cache.reset(this.settings.calendarSources);
         await this.cache.populate();
         this.cache.resync();
+    }
+
+    /**
+     * Reconcile the configured auto-task folder against the calendar sources.
+     * Adds a "local" source for the folder when it exists, isn't already
+     * registered, and hasn't been dismissed by the user. Mutates settings in
+     * place and returns whether anything changed (caller persists).
+     */
+    syncAutoTaskFolder(): boolean {
+        const folder = this.settings.autoTaskFolder?.trim();
+        if (!folder) {
+            return false;
+        }
+        if (this.settings.dismissedAutoFolders?.includes(folder)) {
+            return false;
+        }
+        const exists =
+            this.app.vault.getAbstractFileByPath(folder) instanceof TFolder;
+        if (!exists) {
+            return false;
+        }
+        const alreadyRegistered = this.settings.calendarSources.some(
+            (s) => s.type === "local" && s.directory === folder
+        );
+        if (alreadyRegistered) {
+            return false;
+        }
+        this.settings.calendarSources.push({
+            type: "local",
+            directory: folder,
+            color: getComputedStyle(document.body)
+                .getPropertyValue("--interactive-accent")
+                .trim(),
+        });
+        return true;
     }
 }

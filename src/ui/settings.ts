@@ -27,6 +27,12 @@ export interface FullCalendarSettings {
     };
     timeFormat24h: boolean;
     clickToCreateEventFromMonthView: boolean;
+    // Folder that is auto-registered as a "Full note" calendar source. Empty
+    // string disables the feature.
+    autoTaskFolder: string;
+    // Auto-folders the user manually removed from the calendar list — never
+    // re-added automatically until they re-select the folder in settings.
+    dismissedAutoFolders: string[];
 }
 
 export const DEFAULT_SETTINGS: FullCalendarSettings = {
@@ -39,6 +45,8 @@ export const DEFAULT_SETTINGS: FullCalendarSettings = {
     },
     timeFormat24h: false,
     clickToCreateEventFromMonthView: true,
+    autoTaskFolder: "",
+    dismissedAutoFolders: [],
 };
 
 const WEEKDAYS = [
@@ -246,6 +254,35 @@ export class FullCalendarSettingTab extends PluginSettingTab {
                 });
             });
 
+        new Setting(containerEl)
+            .setName("Auto-managed Task Folder")
+            .setDesc(
+                "Automatically register this folder as a Full note calendar. " +
+                    "Removing it from the calendar list below won't bring it back; " +
+                    "re-select it here to re-enable."
+            )
+            .addDropdown((dropdown) => {
+                dropdown.addOption("", "(None)");
+                this.app.vault
+                    .getAllLoadedFiles()
+                    .filter((f) => f instanceof TFolder)
+                    .forEach((f) => dropdown.addOption(f.path, f.path));
+                dropdown.setValue(this.plugin.settings.autoTaskFolder || "");
+                dropdown.onChange(async (folder) => {
+                    this.plugin.settings.autoTaskFolder = folder;
+                    if (folder) {
+                        // Re-selecting a folder clears any prior dismissal.
+                        this.plugin.settings.dismissedAutoFolders =
+                            this.plugin.settings.dismissedAutoFolders.filter(
+                                (p) => p !== folder
+                            );
+                        this.plugin.syncAutoTaskFolder();
+                    }
+                    await this.plugin.saveSettings();
+                    this.display();
+                });
+            });
+
         containerEl.createEl("h2", { text: "Manage Calendars" });
         addCalendarButton(
             this.app,
@@ -266,6 +303,26 @@ export class FullCalendarSettingTab extends PluginSettingTab {
             createElement(CalendarSettings, {
                 sources: this.plugin.settings.calendarSources,
                 submit: async (settings: CalendarInfo[]) => {
+                    // If the user removed the auto-managed folder, remember the
+                    // dismissal so it isn't re-added on next launch.
+                    const autoFolder =
+                        this.plugin.settings.autoTaskFolder?.trim();
+                    if (autoFolder) {
+                        const stillPresent = settings.some(
+                            (s) =>
+                                s.type === "local" && s.directory === autoFolder
+                        );
+                        if (
+                            !stillPresent &&
+                            !this.plugin.settings.dismissedAutoFolders.includes(
+                                autoFolder
+                            )
+                        ) {
+                            this.plugin.settings.dismissedAutoFolders.push(
+                                autoFolder
+                            );
+                        }
+                    }
                     this.plugin.settings.calendarSources = settings;
                     await this.plugin.saveSettings();
                 },
