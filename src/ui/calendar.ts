@@ -217,6 +217,17 @@ export function renderCalendar(
 
         eventMouseEnter,
 
+        // Mark completed tasks with a class FullCalendar manages itself.
+        // Adding it imperatively in eventDidMount was fragile: FullCalendar
+        // owns the element's className and rebuilds it on relayout, wiping a
+        // hand-added class (so the strike-through silently disappeared after a
+        // re-render) while leaving the prepended checkbox child in place.
+        eventClassNames: ({ event }) =>
+            event.extendedProps.isTask &&
+            event.extendedProps.taskCompleted !== false
+                ? ["ofc-task-completed"]
+                : [],
+
         eventDidMount: ({ event, el, textColor }) => {
             el.addEventListener("contextmenu", (e) => {
                 e.preventDefault();
@@ -247,10 +258,6 @@ export function renderCalendar(
                         checkbox.addClass("ofc-checkbox-black");
                     } else {
                         checkbox.addClass("ofc-checkbox-white");
-                    }
-
-                    if (checkbox.checked) {
-                        el.addClass("ofc-task-completed");
                     }
 
                     // Depending on the view, we should put the checkbox in a different spot.
@@ -288,6 +295,19 @@ export function renderCalendar(
         if (target) {
             if (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
             if (target.isContentEditable) return;
+        }
+        // Arrow keys move the visible range by the current view's duration
+        // (N days). FullCalendar's prev()/next() increment by dateIncrement,
+        // which defaults to the view duration — so a 3-day view moves 3 days.
+        if (e.key === "ArrowLeft") {
+            e.preventDefault();
+            cal.prev();
+            return;
+        }
+        if (e.key === "ArrowRight") {
+            e.preventDefault();
+            cal.next();
+            return;
         }
         // Top-row digits only — ignoring numpad avoids hijacking accidental
         // strokes from users with a numeric keypad workflow.
