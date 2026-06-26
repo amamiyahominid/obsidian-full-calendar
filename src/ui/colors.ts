@@ -40,8 +40,10 @@ export const SOURCE_PALETTE = [
 
 // External/read-only (ical) calendars all share one muted tone, so subscribed
 // calendars read as a single quiet "context" layer behind actionable tasks. A
-// personal calendar can still be given its own color by hand.
-export const EXTERNAL_COLOR = "#9aa7b5";
+// personal calendar can still be given its own color by hand. Sits in the
+// violet range, which the status palette never uses, so external fills don't
+// get confused with a task's status fill.
+export const EXTERNAL_COLOR = "#a89cb5";
 
 // Choose the palette appropriate to a source type. Subscribed ical calendars
 // collapse to the single external tone; everything else gets the vivid palette.
