@@ -3,6 +3,7 @@ import {
     STATUS_COLORS,
     nextSourceColor,
     contrastTextColor,
+    migrateSourceColor,
 } from "./colors";
 
 describe("nextSourceColor", () => {
@@ -28,6 +29,25 @@ describe("nextSourceColor", () => {
 
     it("cycles once the whole palette is used", () => {
         expect(nextSourceColor([...SOURCE_PALETTE])).toBe(SOURCE_PALETTE[0]);
+    });
+});
+
+describe("migrateSourceColor", () => {
+    it("remaps a legacy palette color to the current palette", () => {
+        // Legacy red -> current red (first palette slot).
+        expect(migrateSourceColor("#e6194b")).toBe(SOURCE_PALETTE[0]);
+    });
+
+    it("is case-insensitive", () => {
+        expect(migrateSourceColor("#E6194B")).toBe(SOURCE_PALETTE[0]);
+    });
+
+    it("leaves custom (non-legacy) colors unchanged", () => {
+        expect(migrateSourceColor("#123456")).toBe("#123456");
+    });
+
+    it("leaves current palette colors unchanged", () => {
+        expect(migrateSourceColor(SOURCE_PALETTE[2])).toBe(SOURCE_PALETTE[2]);
     });
 });
 

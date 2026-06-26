@@ -15,7 +15,7 @@ import { PLUGIN_SLUG } from "./types";
 import EventCache from "./core/EventCache";
 import { ObsidianIO } from "./ObsidianAdapter";
 import { launchCreateModal } from "./ui/event_modal";
-import { nextSourceColor } from "./ui/colors";
+import { nextSourceColor, migrateSourceColor } from "./ui/colors";
 import FullNoteCalendar from "./calendars/FullNoteCalendar";
 import DailyNoteCalendar from "./calendars/DailyNoteCalendar";
 import ICSCalendar from "./calendars/ICSCalendar";
@@ -81,9 +81,13 @@ export default class FullCalendarPlugin extends Plugin {
     async onload() {
         await this.loadSettings();
 
-        // Register the auto-task folder before the first cache build so its
-        // events show up on the very first open.
-        if (this.syncAutoTaskFolder()) {
+        // Migrate existing sources to the current color palette and register
+        // the auto-task folder before the first cache build, so both land on
+        // the very first open. Persist with saveData (not saveSettings) to
+        // avoid the cache-reset Notice during startup.
+        const migrated = this.migrateSourceColors();
+        const addedAutoFolder = this.syncAutoTaskFolder();
+        if (migrated || addedAutoFolder) {
             await this.saveData(this.settings);
         }
 
@@ -249,6 +253,23 @@ export default class FullCalendarPlugin extends Plugin {
         this.cache.reset(this.settings.calendarSources);
         await this.cache.populate();
         this.cache.resync();
+    }
+
+    /**
+     * Bring existing source colors onto the current palette (legacy palette
+     * entries are remapped; custom colors are left alone). Mutates settings in
+     * place and returns whether anything changed.
+     */
+    migrateSourceColors(): boolean {
+        let changed = false;
+        for (const source of this.settings.calendarSources) {
+            const next = migrateSourceColor(source.color);
+            if (next !== source.color) {
+                source.color = next;
+                changed = true;
+            }
+        }
+        return changed;
     }
 
     /**

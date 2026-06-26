@@ -37,6 +37,36 @@ export const SOURCE_PALETTE = [
     "#83541f", // brown
 ];
 
+// The earlier, more vivid source palette. Kept only so existing sources can be
+// migrated to the current (deepened) palette on load. Index-aligned with
+// SOURCE_PALETTE.
+const LEGACY_SOURCE_PALETTE = [
+    "#e6194b",
+    "#3cb44b",
+    "#4363d8",
+    "#f58231",
+    "#911eb4",
+    "#42d4f4",
+    "#f032e6",
+    "#bfef45",
+    "#469990",
+    "#9a6324",
+];
+
+/**
+ * Map a legacy palette color to its current-palette equivalent. Colors that
+ * aren't from the legacy palette (custom picks) are returned unchanged.
+ */
+export function migrateSourceColor(color: string): string {
+    if (!color) {
+        return color;
+    }
+    const i = LEGACY_SOURCE_PALETTE.findIndex(
+        (c) => c.toLowerCase() === color.toLowerCase()
+    );
+    return i === -1 ? color : SOURCE_PALETTE[i];
+}
+
 /**
  * Pick the next source color: the first palette entry not already used by an
  * existing source, falling back to a stable rotation once all are taken.
