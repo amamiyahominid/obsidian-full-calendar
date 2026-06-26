@@ -14,11 +14,11 @@
 // neutral slate → cool blue → warm amber → orange → green. Free-form statuses
 // not in this map fall back to the source color.
 export const STATUS_COLORS: Record<string, string> = {
-    Backlog: "#cbd5e1", // slate
-    Ready: "#93c5fd", // blue
-    "In Progress": "#fcd34d", // amber
-    Review: "#fdba74", // orange
-    Done: "#86efac", // green
+    Backlog: "#b6c2d1", // slate
+    Ready: "#7db4fb", // blue
+    "In Progress": "#f8ca3c", // amber
+    Review: "#fbab5c", // orange
+    Done: "#6fe39c", // green
 };
 
 // Source border palette — 10 visually distinct colors assigned sequentially as
