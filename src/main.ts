@@ -15,6 +15,7 @@ import { PLUGIN_SLUG } from "./types";
 import EventCache from "./core/EventCache";
 import { ObsidianIO } from "./ObsidianAdapter";
 import { launchCreateModal } from "./ui/event_modal";
+import { nextSourceColor } from "./ui/colors";
 import FullNoteCalendar from "./calendars/FullNoteCalendar";
 import DailyNoteCalendar from "./calendars/DailyNoteCalendar";
 import ICSCalendar from "./calendars/ICSCalendar";
@@ -278,9 +279,9 @@ export default class FullCalendarPlugin extends Plugin {
         this.settings.calendarSources.push({
             type: "local",
             directory: folder,
-            color: getComputedStyle(document.body)
-                .getPropertyValue("--interactive-accent")
-                .trim(),
+            color: nextSourceColor(
+                this.settings.calendarSources.map((s) => s.color)
+            ),
         });
         return true;
     }

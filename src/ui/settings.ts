@@ -9,6 +9,7 @@ import {
     TFolder,
 } from "obsidian";
 import { makeDefaultPartialCalendarSource, CalendarInfo } from "../types";
+import { nextSourceColor } from "./colors";
 import { CalendarSettings } from "./components/CalendarSetting";
 import { AddCalendarSource } from "./components/AddCalendarSource";
 import * as ReactDOM from "react-dom";
@@ -133,9 +134,18 @@ export function addCalendarButton(
                     }
 
                     return createElement(AddCalendarSource, {
-                        source: makeDefaultPartialCalendarSource(
-                            dropdown.getValue() as CalendarInfo["type"]
-                        ),
+                        source: {
+                            ...makeDefaultPartialCalendarSource(
+                                dropdown.getValue() as CalendarInfo["type"]
+                            ),
+                            // Default to the next unused palette color so newly
+                            // added sources are visually distinct out of the box.
+                            color: nextSourceColor(
+                                plugin.settings.calendarSources.map(
+                                    (s) => s.color
+                                )
+                            ),
+                        },
                         directories: directories.filter(
                             (dir) => usedDirectories.indexOf(dir) === -1
                         ),
