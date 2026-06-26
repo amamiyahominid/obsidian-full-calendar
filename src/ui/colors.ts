@@ -23,7 +23,8 @@ export const STATUS_COLORS: Record<string, string> = {
 
 // Source border palette — 10 visually distinct colors assigned sequentially as
 // new calendar sources are added. Deterministic and collision-free until all
-// ten are in use, then it cycles.
+// ten are in use, then it cycles. Used for actionable sources (local task
+// folders, CalDAV).
 export const SOURCE_PALETTE = [
     "#c41540", // red
     "#339940", // green
@@ -36,6 +37,17 @@ export const SOURCE_PALETTE = [
     "#3c827a", // teal
     "#83541f", // brown
 ];
+
+// External/read-only (ical) calendars all share one muted tone, so subscribed
+// calendars read as a single quiet "context" layer behind actionable tasks. A
+// personal calendar can still be given its own color by hand.
+export const EXTERNAL_COLOR = "#9aa7b5";
+
+// Choose the palette appropriate to a source type. Subscribed ical calendars
+// collapse to the single external tone; everything else gets the vivid palette.
+export function paletteForType(type: string): string[] {
+    return type === "ical" ? [EXTERNAL_COLOR] : SOURCE_PALETTE;
+}
 
 // The earlier, more vivid source palette. Kept only so existing sources can be
 // migrated to the current (deepened) palette on load. Index-aligned with
@@ -68,15 +80,20 @@ export function migrateSourceColor(color: string): string {
 }
 
 /**
- * Pick the next source color: the first palette entry not already used by an
- * existing source, falling back to a stable rotation once all are taken.
+ * Pick the next source color for a source of the given type: the first entry of
+ * that type's palette not already used, falling back to a stable rotation once
+ * all are taken.
  */
-export function nextSourceColor(usedColors: string[]): string {
+export function nextSourceColor(
+    usedColors: string[],
+    type: string = "local"
+): string {
+    const palette = paletteForType(type);
     const used = new Set(
         usedColors.filter(Boolean).map((c) => c.toLowerCase())
     );
-    const free = SOURCE_PALETTE.find((c) => !used.has(c.toLowerCase()));
-    return free ?? SOURCE_PALETTE[usedColors.length % SOURCE_PALETTE.length];
+    const free = palette.find((c) => !used.has(c.toLowerCase()));
+    return free ?? palette[usedColors.length % palette.length];
 }
 
 /**

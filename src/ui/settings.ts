@@ -138,12 +138,14 @@ export function addCalendarButton(
                             ...makeDefaultPartialCalendarSource(
                                 dropdown.getValue() as CalendarInfo["type"]
                             ),
-                            // Default to the next unused palette color so newly
-                            // added sources are visually distinct out of the box.
+                            // Default to the next unused palette color (muted
+                            // for ical, vivid otherwise) so newly added sources
+                            // are visually distinct and on-theme out of the box.
                             color: nextSourceColor(
                                 plugin.settings.calendarSources.map(
                                     (s) => s.color
-                                )
+                                ),
+                                dropdown.getValue()
                             ),
                         },
                         directories: directories.filter(

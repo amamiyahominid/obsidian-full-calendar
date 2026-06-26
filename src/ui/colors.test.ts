@@ -1,5 +1,6 @@
 import {
     SOURCE_PALETTE,
+    EXTERNAL_COLOR,
     STATUS_COLORS,
     nextSourceColor,
     contrastTextColor,
@@ -29,6 +30,17 @@ describe("nextSourceColor", () => {
 
     it("cycles once the whole palette is used", () => {
         expect(nextSourceColor([...SOURCE_PALETTE])).toBe(SOURCE_PALETTE[0]);
+    });
+
+    it("uses the unified external color for ical sources", () => {
+        expect(nextSourceColor([], "ical")).toBe(EXTERNAL_COLOR);
+    });
+
+    it("always returns the external color for ical, even when in use", () => {
+        // Every subscribed calendar shares the one muted external tone.
+        expect(
+            nextSourceColor([EXTERNAL_COLOR, SOURCE_PALETTE[0]], "ical")
+        ).toBe(EXTERNAL_COLOR);
     });
 });
 
