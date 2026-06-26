@@ -14,27 +14,27 @@
 // neutral slate → cool blue → warm amber → orange → green. Free-form statuses
 // not in this map fall back to the source color.
 export const STATUS_COLORS: Record<string, string> = {
-    Backlog: "#b6c2d1", // slate
-    Ready: "#7db4fb", // blue
-    "In Progress": "#f8ca3c", // amber
-    Review: "#fbab5c", // orange
-    Done: "#6fe39c", // green
+    Backlog: "#cbd5e1", // slate
+    Ready: "#93c5fd", // blue
+    "In Progress": "#fcd34d", // amber
+    Review: "#fdba74", // orange
+    Done: "#86efac", // green
 };
 
 // Source border palette — 10 visually distinct colors assigned sequentially as
 // new calendar sources are added. Deterministic and collision-free until all
 // ten are in use, then it cycles.
 export const SOURCE_PALETTE = [
-    "#e6194b", // red
-    "#3cb44b", // green
-    "#4363d8", // blue
-    "#f58231", // orange
-    "#911eb4", // purple
-    "#42d4f4", // cyan
-    "#f032e6", // magenta
-    "#bfef45", // lime
-    "#469990", // teal
-    "#9a6324", // brown
+    "#c41540", // red
+    "#339940", // green
+    "#3954b8", // blue
+    "#d06f2a", // orange
+    "#7b1a99", // purple
+    "#2f9cb8", // cyan
+    "#cc2bc4", // magenta
+    "#8aab2f", // lime
+    "#3c827a", // teal
+    "#83541f", // brown
 ];
 
 /**
