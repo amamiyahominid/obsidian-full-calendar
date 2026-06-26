@@ -51,6 +51,16 @@
 	padding: var(--size-4-1) var(--size-4-3) !important;
 }
 
+/* The event fill is the task status color and the border is the source color.
+   A 1px border vanishes against the fill, so widen the left edge into a stripe
+   that keeps the source color readable. For non-task events fill and border are
+   the same source color, so the stripe is simply invisible. */
+.fc-daygrid-event,
+.fc-timegrid-event,
+.fc-list-event {
+	border-left-width: 5px !important;
+}
+
 .ofc-has-checkbox {
 	display: flex !important;
 }

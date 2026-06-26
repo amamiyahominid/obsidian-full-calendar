@@ -9,14 +9,16 @@
  * so their appearance is unchanged.
  */
 
-// Fixed semantic palette for the workflow stages. Free-form statuses that are
+// Fixed semantic palette for the workflow stages. Muted (Tailwind-300-ish)
+// pastels so events stay easy on the eye, ordered to read as a progression:
+// neutral slate → cool blue → warm amber → orange → green. Free-form statuses
 // not in this map fall back to the source color.
 export const STATUS_COLORS: Record<string, string> = {
-    Backlog: "#8a8a8a",
-    Ready: "#3b82f6",
-    "In Progress": "#eab308",
-    Review: "#f97316",
-    Done: "#22c55e",
+    Backlog: "#cbd5e1", // slate
+    Ready: "#93c5fd", // blue
+    "In Progress": "#fcd34d", // amber
+    Review: "#fdba74", // orange
+    Done: "#86efac", // green
 };
 
 // Source border palette — 10 visually distinct colors assigned sequentially as
