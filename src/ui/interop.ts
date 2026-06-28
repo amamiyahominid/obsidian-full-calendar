@@ -160,10 +160,22 @@ export function toEventInput(
                 if (!date) {
                     return undefined;
                 }
-                const local = dtstart.toJSDate();
                 const [year, month, day] = date
                     .split("-")
                     .map((p) => parseInt(p, 10));
+                // The exdate must land on the exact instant rrule emits for that
+                // occurrence, otherwise the exclusion misses and the original
+                // instance keeps showing alongside any moved override.
+                // All-day rrules anchor each occurrence at noon UTC (see
+                // rruleDtstart below), so the exclusion has to match that — not
+                // the host-local midnight, which drifts by the UTC offset (e.g.
+                // in JST midnight-local is the previous day at 15:00Z).
+                if (frontmatter.allDay) {
+                    return new Date(
+                        Date.UTC(year, month - 1, day, 12, 0, 0)
+                    ).toISOString();
+                }
+                const local = dtstart.toJSDate();
                 const exdateLocal = new Date(
                     year,
                     month - 1,
