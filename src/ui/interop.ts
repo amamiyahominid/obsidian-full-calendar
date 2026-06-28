@@ -148,46 +148,6 @@ export function toEventInput(
         if (dtstart === null) {
             return null;
         }
-        // NOTE: how exdates are handled does not support events which recur more than once per day.
-        // Build each exdate from the skipDate's calendar day plus dtstart's local
-        // wall-clock time, then convert to ISO (UTC) so it lines up with what
-        // rrule emits internally. Pre-fix this used `toISOString().split("T")[1]`
-        // which mixed the dtstart's UTC time onto the exdate's local date and
-        // produced exdates that drifted by the host's UTC offset.
-        const exdate = frontmatter.skipDates
-            .map((d) => {
-                const date = DateTime.fromISO(d).toISODate();
-                if (!date) {
-                    return undefined;
-                }
-                const [year, month, day] = date
-                    .split("-")
-                    .map((p) => parseInt(p, 10));
-                // The exdate must land on the exact instant rrule emits for that
-                // occurrence, otherwise the exclusion misses and the original
-                // instance keeps showing alongside any moved override.
-                // All-day rrules anchor each occurrence at noon UTC (see
-                // rruleDtstart below), so the exclusion has to match that — not
-                // the host-local midnight, which drifts by the UTC offset (e.g.
-                // in JST midnight-local is the previous day at 15:00Z).
-                if (frontmatter.allDay) {
-                    return new Date(
-                        Date.UTC(year, month - 1, day, 12, 0, 0)
-                    ).toISOString();
-                }
-                const local = dtstart.toJSDate();
-                const exdateLocal = new Date(
-                    year,
-                    month - 1,
-                    day,
-                    local.getHours(),
-                    local.getMinutes(),
-                    local.getSeconds()
-                );
-                return exdateLocal.toISOString();
-            })
-            .flatMap((d) => (d ? d : []));
-
         // For all-day rrules, anchor DTSTART at noon UTC on the start day so
         // that hosts both east and west of UTC stay on the same calendar day.
         // Timed events still use the local-time dtstart so the wall-clock
@@ -201,6 +161,17 @@ export function toEventInput(
               })()
             : dtstart.toJSDate();
 
+        // NOTE: we deliberately do NOT hand the recurrence exclusions to
+        // FullCalendar (neither a separate `exdate` prop nor an embedded
+        // EXDATE line). In the Electron runtime — with our mismatched
+        // @fullcalendar plugin versions (rrule 5.11.2 vs common 5.11.4) —
+        // rrule's exclusion is unreliable: it either fails to drop the
+        // overridden occurrence (leaving a duplicate next to the moved one) or
+        // drops the wrong day entirely. rrule still EXPANDS occurrences
+        // correctly, so we let it emit every instance and exclude skipDates
+        // ourselves in the calendar's eventDidMount (see renderCalendar), which
+        // is timezone- and version-independent. `skipDates` is carried in
+        // extendedProps for that hook (and for drag/resize reconstruction).
         event = {
             id,
             title: frontmatter.title,
@@ -208,11 +179,6 @@ export function toEventInput(
             rrule: rrulestr(frontmatter.rrule, {
                 dtstart: rruleDtstart,
             }).toString(),
-            exdate,
-            // Carry the source rule so fromEventApi() can reconstruct an
-            // "rrule" OFCEvent on drag/resize instead of corrupting it into a
-            // single event (which would happen if only `daysOfWeek` decided
-            // the type).
             extendedProps: {
                 isTask: false,
                 rrule: frontmatter.rrule,

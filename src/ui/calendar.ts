@@ -229,6 +229,26 @@ export function renderCalendar(
                 : [],
 
         eventDidMount: ({ event, el, textColor }) => {
+            // Guaranteed recurrence exclusion. FullCalendar's rrule plugin is
+            // supposed to drop occurrences listed in `exdate` / EXDATE, but in
+            // the Electron runtime (with our mismatched @fullcalendar plugin
+            // versions, rrule 5.11.2 vs common 5.11.4) that exclusion silently
+            // fails — the original instance keeps rendering next to a moved
+            // recurrence override. Since the rrule still expands occurrences
+            // correctly, we hide any instance whose local day is in skipDates.
+            const skipDates = event.extendedProps?.skipDates as
+                | string[]
+                | undefined;
+            if (skipDates && skipDates.length > 0 && event.start) {
+                const d = event.start;
+                const localDay = `${d.getFullYear()}-${String(
+                    d.getMonth() + 1
+                ).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+                if (skipDates.includes(localDay)) {
+                    el.style.display = "none";
+                    return;
+                }
+            }
             el.addEventListener("contextmenu", (e) => {
                 e.preventDefault();
                 openContextMenuForEvent && openContextMenuForEvent(event, e);
