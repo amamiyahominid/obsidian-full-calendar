@@ -137,4 +137,75 @@ END:VCALENDAR
         const events = getEventsFromICS(ics);
         expect(events).toMatchSnapshot(ics);
     });
+
+    // Regression test for a Google Calendar "this and following events" edit
+    // on a JST calendar. Google splits the recurrence into two VEVENTs: the
+    // original series capped with a UTC UNTIL (23:59:59 local expressed in Z)
+    // and a brand-new series starting on the split day. The split day must not
+    // leak backwards across the timezone boundary: the old series' last
+    // occurrence is 7/2 and the new series starts exactly on 7/3.
+    it("parses a JST this-and-following split without shifting the boundary", () => {
+        const ics = `BEGIN:VCALENDAR
+PRODID:-//Google Inc//Google Calendar 70.9054//EN
+VERSION:2.0
+CALSCALE:GREGORIAN
+METHOD:PUBLISH
+X-WR-TIMEZONE:Asia/Tokyo
+BEGIN:VTIMEZONE
+TZID:Asia/Tokyo
+X-LIC-LOCATION:Asia/Tokyo
+BEGIN:STANDARD
+TZOFFSETFROM:+0900
+TZOFFSETTO:+0900
+TZNAME:JST
+DTSTART:19700101T000000
+END:STANDARD
+END:VTIMEZONE
+BEGIN:VEVENT
+DTSTART;TZID=Asia/Tokyo:20260526T060000
+DTEND;TZID=Asia/Tokyo:20260526T073000
+RRULE:FREQ=DAILY;UNTIL=20260702T145959Z
+DTSTAMP:20260702T151319Z
+UID:9u63e1nkse2ut78ggffh2db0ga@google.com
+CREATED:20260525T211445Z
+LAST-MODIFIED:20260702T150646Z
+SEQUENCE:5
+STATUS:CONFIRMED
+SUMMARY:Old series
+TRANSP:OPAQUE
+END:VEVENT
+BEGIN:VEVENT
+DTSTART;TZID=Asia/Tokyo:20260703T070000
+DTEND;TZID=Asia/Tokyo:20260703T083000
+RRULE:FREQ=DAILY
+DTSTAMP:20260702T151319Z
+UID:s1gn1ttb1mr4dbv2sci44debig@google.com
+CREATED:20260702T150646Z
+LAST-MODIFIED:20260702T150646Z
+SEQUENCE:6
+STATUS:CONFIRMED
+SUMMARY:New series
+TRANSP:OPAQUE
+END:VEVENT
+END:VCALENDAR`;
+
+        const events = getEventsFromICS(ics);
+        const oldSeries = events.find((e) => e.title === "Old series");
+        const newSeries = events.find((e) => e.title === "New series");
+
+        expect(oldSeries).toMatchObject({
+            type: "rrule",
+            startDate: "2026-05-26",
+            startTime: "06:00",
+            endTime: "07:30",
+        });
+        expect(newSeries).toMatchObject({
+            type: "rrule",
+            // The new series must begin on the split day itself, not the
+            // previous local day.
+            startDate: "2026-07-03",
+            startTime: "07:00",
+            endTime: "08:30",
+        });
+    });
 });
