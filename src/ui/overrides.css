@@ -366,3 +366,56 @@
 	font-size: var(--font-ui-small);
 	color: var(--text-faint);
 }
+
+/* ---- Tray start/stop sessions ---- */
+
+.ofc-tray-card {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--size-2-2);
+}
+
+.ofc-tray-card-body {
+	min-width: 0;
+}
+
+.ofc-tray-card-btn {
+	flex-shrink: 0;
+	background: transparent;
+	box-shadow: none;
+	border: none;
+	padding: var(--size-2-1);
+	color: var(--text-muted);
+	cursor: pointer;
+}
+
+.ofc-tray-card-btn:hover {
+	color: var(--text-normal);
+}
+
+.ofc-tray-card-btn .svg-icon {
+	width: 14px;
+	height: 14px;
+}
+
+.ofc-tray-card-running {
+	border-left-color: var(--color-green);
+}
+
+.ofc-tray-card-running .ofc-tray-card-meta {
+	color: var(--color-green);
+}
+
+.ofc-tray-warning {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--size-2-2);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-warning);
+	background-color: var(--background-modifier-error-hover);
+	border-radius: var(--radius-s);
+	padding: var(--size-2-2) var(--size-2-3);
+	margin-bottom: var(--size-2-3);
+}

@@ -1,8 +1,17 @@
+import { setIcon } from "obsidian";
+import { DateTime } from "luxon";
 import { Draggable } from "@fullcalendar/interaction";
 import type FullCalendarPlugin from "../main";
 import { collectTaskCards, Card } from "./kanban";
 import { sprintBucket, weekOf } from "./sprint";
 import { openFileForEvent } from "./actions";
+import {
+    findRunningSessions,
+    firstLinktext,
+    startSession,
+    stopSession,
+    RunningSession,
+} from "../core/worklog";
 
 /*
  * Task tray: a slim column next to the calendar listing this sprint's
@@ -64,6 +73,31 @@ export function renderTaskTray(
             cls: "ofc-tray-header",
             text: `This week · ${weekOf(0)}`,
         });
+
+        const running = findRunningSessions(plugin);
+        const today = DateTime.now().toISODate();
+
+        // Forgotten stops: a session still running from a previous day.
+        // Stopping closes it at 23:59 of its own day; resize to fine-tune.
+        for (const stale of running.filter((r) => r.event.date < today)) {
+            const row = el.createDiv({ cls: "ofc-tray-warning" });
+            row.createSpan({
+                text: `⏱ ${stale.event.title} — running since ${stale.event.date}`,
+            });
+            const btn = row.createEl("button", { text: "Stop" });
+            btn.onclick = async () => {
+                await stopSession(plugin, stale);
+            };
+        }
+
+        const runningByLink = new Map<string, RunningSession>();
+        for (const r of running) {
+            const link = firstLinktext(r.event.title);
+            if (link) {
+                runningByLink.set(link, r);
+            }
+        }
+
         const cards = trayCards(plugin);
         if (cards.length === 0) {
             el.createDiv({
@@ -77,18 +111,42 @@ export function renderTaskTray(
             if (!linktext) {
                 continue;
             }
+            const session = runningByLink.get(linktext);
             const cardEl = el.createDiv({ cls: "ofc-tray-card" });
+            if (session) {
+                cardEl.addClass("ofc-tray-card-running");
+            }
             cardEl.dataset.linktext = linktext;
-            cardEl.createDiv({
+
+            const bodyEl = cardEl.createDiv({ cls: "ofc-tray-card-body" });
+            bodyEl.createDiv({
                 cls: "ofc-tray-card-title",
                 text: card.event.title,
             });
-            if (card.event.status) {
-                cardEl.createDiv({
-                    cls: "ofc-tray-card-meta",
-                    text: card.event.status,
-                });
+            const meta = session
+                ? `● ${session.event.startTime}–`
+                : card.event.status;
+            if (meta) {
+                bodyEl.createDiv({ cls: "ofc-tray-card-meta", text: meta });
             }
+
+            const btn = cardEl.createEl("button", {
+                cls: "ofc-tray-card-btn",
+            });
+            setIcon(btn, session ? "square" : "play");
+            btn.setAttr(
+                "aria-label",
+                session ? "Stop session" : "Start working now"
+            );
+            btn.onclick = async (ev) => {
+                ev.stopPropagation();
+                if (session) {
+                    await stopSession(plugin, session);
+                } else {
+                    await startSession(plugin, `[[${linktext}]]`);
+                }
+            };
+
             // Same affordance as calendar events: ctrl/cmd-click opens the
             // task note. A plain click stays free for drag interactions.
             cardEl.addEventListener("click", async (ev) => {
