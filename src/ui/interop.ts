@@ -201,6 +201,21 @@ export function toEventInput(
             }
         }
     } else if (frontmatter.type === "single") {
+        // Checkbox display state. `status` (workflow tasks) is the source of
+        // truth when present; `completed` covers daily-note checkbox lines.
+        // The raw completed value rides along so fromEventApi can round-trip
+        // it verbatim instead of writing the derived value into frontmatter.
+        const taskProps = {
+            isTask:
+                frontmatter.status !== undefined ||
+                (frontmatter.completed !== undefined &&
+                    frontmatter.completed !== null),
+            taskCompleted:
+                frontmatter.status !== undefined
+                    ? frontmatter.status === "Done"
+                    : frontmatter.completed,
+            ofcCompleted: frontmatter.completed,
+        };
         if (!frontmatter.allDay) {
             const start = combineDateTimeStrings(
                 frontmatter.date,
@@ -224,24 +239,14 @@ export function toEventInput(
                 ...event,
                 start,
                 end,
-                extendedProps: {
-                    isTask:
-                        frontmatter.completed !== undefined &&
-                        frontmatter.completed !== null,
-                    taskCompleted: frontmatter.completed,
-                },
+                extendedProps: taskProps,
             };
         } else {
             event = {
                 ...event,
                 start: frontmatter.date,
                 end: frontmatter.endDate || undefined,
-                extendedProps: {
-                    isTask:
-                        frontmatter.completed !== undefined &&
-                        frontmatter.completed !== null,
-                    taskCompleted: frontmatter.completed,
-                },
+                extendedProps: taskProps,
             };
         }
     }
@@ -306,7 +311,10 @@ export function fromEventApi(event: EventApi): OFCEvent {
                   type: "single",
                   date: startDate,
                   ...(startDate !== endDate ? { endDate } : { endDate: null }),
-                  completed: event.extendedProps.taskCompleted,
+                  // Raw value, NOT the status-derived taskCompleted — a drag
+                  // must never materialize `completed` in task-note
+                  // frontmatter (status owns done-ness there).
+                  completed: event.extendedProps.ofcCompleted,
               }),
     };
 }

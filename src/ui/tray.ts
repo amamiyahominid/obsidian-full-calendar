@@ -6,12 +6,15 @@ import { collectTaskCards, Card } from "./kanban";
 import { sprintBucket, weekOf } from "./sprint";
 import { openFileForEvent } from "./actions";
 import {
+    actualMinutesByLinktext,
     findRunningSessions,
     firstLinktext,
+    linktextForEvent,
     startSession,
     stopSession,
     RunningSession,
 } from "../core/worklog";
+import { formatHours } from "./sprint";
 
 /*
  * Task tray: a slim column next to the calendar listing this sprint's
@@ -23,8 +26,12 @@ import {
 
 export type TaskTray = { refresh: () => void; destroy: () => void };
 
+// Status is the source of truth when present; `completed` only decides for
+// legacy notes that never picked a workflow stage.
 const cardDone = (c: Card): boolean =>
-    c.event.completed === true || c.event.status === "Done";
+    c.event.status !== undefined
+        ? c.event.status === "Done"
+        : c.event.completed === true;
 
 /** This sprint's unfinished tasks, carry-overs included. */
 export function trayCards(plugin: FullCalendarPlugin): Card[] {
@@ -36,20 +43,6 @@ export function trayCards(plugin: FullCalendarPlugin): Card[] {
         const bucket = sprintBucket(c.event.sprint, false, currentWeek);
         return bucket === currentWeek || bucket === "carryover";
     });
-}
-
-/** The wikilink target for a card's task note (basename without .md). */
-function cardLinktext(plugin: FullCalendarPlugin, card: Card): string | null {
-    try {
-        const { location } = plugin.cache.getInfoForEditableEvent(card.id);
-        const path = location?.path;
-        if (!path) {
-            return null;
-        }
-        return path.split("/").pop()!.replace(/\.md$/, "");
-    } catch {
-        return null;
-    }
 }
 
 export function renderTaskTray(
@@ -98,6 +91,7 @@ export function renderTaskTray(
             }
         }
 
+        const actuals = actualMinutesByLinktext(plugin);
         const cards = trayCards(plugin);
         if (cards.length === 0) {
             el.createDiv({
@@ -107,7 +101,7 @@ export function renderTaskTray(
             return;
         }
         for (const card of cards) {
-            const linktext = cardLinktext(plugin, card);
+            const linktext = linktextForEvent(plugin, card.id);
             if (!linktext) {
                 continue;
             }
@@ -123,11 +117,16 @@ export function renderTaskTray(
                 cls: "ofc-tray-card-title",
                 text: card.event.title,
             });
-            const meta = session
-                ? `● ${session.event.startTime}–`
-                : card.event.status;
-            if (meta) {
-                bodyEl.createDiv({ cls: "ofc-tray-card-meta", text: meta });
+            const minutes = actuals.get(linktext) ?? 0;
+            const parts = [
+                session ? `● ${session.event.startTime}–` : card.event.status,
+                minutes > 0 ? `⏱ ${formatHours(minutes)}` : null,
+            ].filter((p): p is string => !!p);
+            if (parts.length > 0) {
+                bodyEl.createDiv({
+                    cls: "ofc-tray-card-meta",
+                    text: parts.join(" · "),
+                });
             }
 
             const btn = cardEl.createEl("button", {

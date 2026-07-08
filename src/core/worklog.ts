@@ -2,6 +2,7 @@ import { Notice } from "obsidian";
 import { DateTime } from "luxon";
 import DailyNoteCalendar from "../calendars/DailyNoteCalendar";
 import { OFCEvent } from "../types";
+import { totalScheduledMinutes } from "../ui/sprint";
 import type FullCalendarPlugin from "../main";
 
 /*
@@ -79,6 +80,59 @@ export async function createSession(
         }
         return false;
     }
+}
+
+/**
+ * The wikilink target (note basename, no .md) of an editable event's file.
+ * Used as the join key between task cards and their session lines.
+ */
+export function linktextForEvent(
+    plugin: FullCalendarPlugin,
+    eventId: string
+): string | null {
+    try {
+        const { location } = plugin.cache.getInfoForEditableEvent(eventId);
+        const path = location?.path;
+        if (!path) {
+            return null;
+        }
+        return path.split("/").pop()!.replace(/\.md$/, "");
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Total logged minutes per task linktext across all closed session lines.
+ * Running sessions (no endTime) and all-day sessions don't count until
+ * they're given real times.
+ */
+export function actualMinutesByLinktext(
+    plugin: FullCalendarPlugin
+): Map<string, number> {
+    const totals = new Map<string, number>();
+    const calendarId = getWorklogCalendarId(plugin);
+    if (!calendarId) {
+        return totals;
+    }
+    const source = plugin.cache.getAllEvents().find((s) => s.id === calendarId);
+    if (!source) {
+        return totals;
+    }
+    for (const { event } of source.events) {
+        if (event.type !== "single" || event.allDay) {
+            continue;
+        }
+        const link = firstLinktext(event.title);
+        if (!link) {
+            continue;
+        }
+        const minutes = totalScheduledMinutes([event]);
+        if (minutes > 0) {
+            totals.set(link, (totals.get(link) ?? 0) + minutes);
+        }
+    }
+    return totals;
 }
 
 // ---- Running sessions (start/stop buttons) ----

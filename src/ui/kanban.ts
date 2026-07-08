@@ -6,6 +6,7 @@ import { UpdateViewCallback } from "../core/EventCache";
 import { contrastTextColor, STATUS_COLORS } from "./colors";
 import { isTask } from "./tasks";
 import { openFileForEvent } from "./actions";
+import { actualMinutesByLinktext, linktextForEvent } from "../core/worklog";
 import { launchCreateModal, launchEditModal } from "./event_modal";
 import { FULL_CALENDAR_VIEW_TYPE } from "./view";
 import {
@@ -98,8 +99,10 @@ type Column = {
 // they can be dragged onto the board without editing frontmatter by hand.
 const cardStatus = (e: Card["event"]): string => e.status ?? "Backlog";
 
+// Status is the source of truth when present; `completed` only decides for
+// legacy notes that never picked a workflow stage.
 const cardDone = (e: Card["event"]): boolean =>
-    e.completed === true || e.status === "Done";
+    e.status !== undefined ? e.status === "Done" : e.completed === true;
 
 // "local::30_projects/01_foo/tasks" → "01_foo". Falls back to the raw ID for
 // sources that don't follow the project-folder convention.
@@ -397,6 +400,9 @@ export class KanbanView extends ItemView {
         });
     }
 
+    // Logged session minutes per task linktext, refreshed once per render.
+    private actuals: Map<string, number> = new Map();
+
     private render() {
         const board = this.boardEl;
         if (!board) {
@@ -404,6 +410,7 @@ export class KanbanView extends ItemView {
         }
         board.empty();
 
+        this.actuals = actualMinutesByLinktext(this.plugin);
         const allCards = this.collectCards();
         this.renderToolbar(allCards);
         const cards = this.applyFilters(allCards);
@@ -552,6 +559,16 @@ export class KanbanView extends ItemView {
             if (event.sprint === weekOf(0)) {
                 sprintEl.addClass("ofc-kanban-card-sprint-current");
             }
+        }
+
+        // Actual logged time from work-log sessions linking this task.
+        const linktext = linktextForEvent(this.plugin, id);
+        const minutes = linktext ? this.actuals.get(linktext) ?? 0 : 0;
+        if (minutes > 0) {
+            metaEl.createSpan({
+                cls: "ofc-kanban-card-actual",
+                text: `⏱ ${formatHours(minutes)}`,
+            });
         }
 
         this.registerDomEvent(cardEl, "dragstart", (ev) => {

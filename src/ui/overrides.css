@@ -419,3 +419,8 @@
 	padding: var(--size-2-2) var(--size-2-3);
 	margin-bottom: var(--size-2-3);
 }
+
+.ofc-kanban-card-actual {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}

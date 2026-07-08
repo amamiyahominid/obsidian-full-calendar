@@ -278,9 +278,11 @@ export const EditEvent = ({
     );
 
     // A new event (no title yet) defaults to a task; existing events keep
-    // task-ness only if they explicitly set `completed`.
+    // task-ness if they carry either done-ness field (status for task notes,
+    // completed for daily-note checkbox lines).
     const [isTask, setIsTask] = useState(
-        initialCompleted !== undefined && initialCompleted !== null
+        (initialCompleted !== undefined && initialCompleted !== null) ||
+            initialStatus !== undefined
             ? true
             : !(initialEvent && initialEvent.title)
     );
@@ -340,21 +342,37 @@ export const EditEvent = ({
                               }),
                               skipDates,
                           }
-                    : {
-                          type: "single",
-                          date: date || "",
-                          endDate: endDate || null,
-                          completed: isTask
-                              ? !!complete
-                              : originalCompleted !== undefined
-                              ? originalCompleted
-                              : null,
-                          status: isTask ? status : undefined,
-                          // null deletes the frontmatter key (see
-                          // modifyFrontmatterString) so clearing the dropdown
-                          // actually removes `sprint:` from the note.
-                          sprint: sprint || null,
-                      }),
+                    : (() => {
+                          // Which field owns done-ness depends on the target:
+                          // task notes (local calendars) use `status` and must
+                          // not carry a legacy `completed` key; daily-note
+                          // lines use the checkbox (`completed`) and must not
+                          // get a `[status:: ...]` attribute.
+                          const workflowTask =
+                              isTask &&
+                              calendars[calendarIndex]?.type === "local";
+                          return {
+                              type: "single" as const,
+                              date: date || "",
+                              endDate: endDate || null,
+                              completed: workflowTask
+                                  ? null
+                                  : isTask
+                                  ? !!complete
+                                  : originalCompleted !== undefined
+                                  ? originalCompleted
+                                  : null,
+                              // null deletes the frontmatter key (see
+                              // modifyFrontmatterString); un-tasking an event
+                              // removes it from the workflow entirely.
+                              status: (workflowTask
+                                  ? status
+                                  : isTask
+                                  ? undefined
+                                  : null) as unknown as string | undefined,
+                              sprint: sprint || null,
+                          };
+                      })()),
             },
             calendarIndex
         );
