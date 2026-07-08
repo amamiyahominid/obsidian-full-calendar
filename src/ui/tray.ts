@@ -34,14 +34,22 @@ const cardDone = (c: Card): boolean => isDoneStatus(c.event.status);
 /**
  * This sprint's tasks, carry-overs included. Done tasks stay visible — the
  * tray doubles as an at-a-glance retrospective, and a mis-tapped checkbox
- * can be unticked — but sink below the unfinished ones. (Done tasks from
- * PAST weeks still disappear: sprintBucket hides them.)
+ * can be unticked — but sink below the unfinished ones. Done tasks from
+ * PAST weeks are normally hidden, EXCEPT ones `isSticky` vouches for:
+ * finishing a carryover must not make its card vanish mid-session.
  */
-export function trayCards(plugin: FullCalendarPlugin): Card[] {
+export function trayCards(
+    plugin: FullCalendarPlugin,
+    isSticky?: (c: Card) => boolean
+): Card[] {
     const currentWeek = weekOf(0);
     const cards = collectTaskCards(plugin).filter((c) => {
-        const bucket = sprintBucket(c.event.sprint, cardDone(c), currentWeek);
-        return bucket === currentWeek || bucket === "carryover";
+        const done = cardDone(c);
+        const bucket = sprintBucket(c.event.sprint, done, currentWeek);
+        if (bucket === currentWeek || bucket === "carryover") {
+            return true;
+        }
+        return done && bucket === null && (isSticky?.(c) ?? false);
     });
     return cards.sort((a, b) => Number(cardDone(a)) - Number(cardDone(b)));
 }
@@ -65,6 +73,11 @@ export function renderTaskTray(
                       duration: "01:00",
                   }),
               });
+
+    // Carryovers (past-week sprints) that this tray has shown as unfinished:
+    // when one gets checked it would otherwise fall out of the sprint filter
+    // instantly. Keyed by linktext — event IDs churn on file edits.
+    const seenUnfinished = new Set<string>();
 
     const refresh = () => {
         el.empty();
@@ -98,7 +111,10 @@ export function renderTaskTray(
         }
 
         const actuals = actualMinutesByLinktext(plugin);
-        const cards = trayCards(plugin);
+        const cards = trayCards(plugin, (c) => {
+            const link = linktextForEvent(plugin, c.id);
+            return !!link && seenUnfinished.has(link);
+        });
         if (cards.length === 0) {
             el.createDiv({
                 cls: "ofc-tray-empty",
@@ -113,6 +129,9 @@ export function renderTaskTray(
             }
             const session = runningByLink.get(linktext);
             const done = cardDone(card);
+            if (!done) {
+                seenUnfinished.add(linktext);
+            }
             const cardEl = el.createDiv({ cls: "ofc-tray-card" });
             if (session) {
                 cardEl.addClass("ofc-tray-card-running");

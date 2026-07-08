@@ -1,13 +1,7 @@
-import { DateTime } from "luxon";
 import * as React from "react";
 import { useEffect, useRef, useState } from "react";
 import { CalendarInfo, OFCEvent } from "../../types";
-import {
-    doneStatus,
-    isDoneStatus,
-    statusAfterUncheck,
-    workflowStages,
-} from "../colors";
+import { workflowStages } from "../colors";
 import { weekOf } from "../sprint";
 import {
     buildRRule,
@@ -314,11 +308,12 @@ export const EditEvent = ({
     const initialSprint =
         initialEvent?.type === "single" ? initialEvent.sprint : undefined;
 
-    const [complete, setComplete] = useState<string | boolean | null>(
+    // Read-only passthrough of a daily-note line's checkbox state; the
+    // calendar's own checkbox is where it gets toggled.
+    const complete =
         initialCompleted !== null && initialCompleted !== undefined
             ? initialCompleted
-            : false
-    );
+            : false;
 
     // Tasks are created from the kanban board (its + button seeds a
     // status), never from the calendar — so task-ness is fixed by what the
@@ -623,38 +618,13 @@ export const EditEvent = ({
                 )}
                 {!isDailyNote && isTask && (
                     <>
-                        <label htmlFor="taskStatus">Complete? </label>
-                        <input
-                            id="taskStatus"
-                            checked={
-                                !(complete === false || complete === undefined)
-                            }
-                            onChange={(e) => {
-                                const isChecked = e.target.checked;
-                                setComplete(
-                                    isChecked ? DateTime.now().toISO() : false
-                                );
-                                setStatus(
-                                    isChecked
-                                        ? doneStatus()
-                                        : statusAfterUncheck()
-                                );
-                            }}
-                            type="checkbox"
-                        />
                         <p>
                             <label htmlFor="status">Status </label>
                             <select
                                 id="status"
                                 value={status}
                                 onChange={(e) => {
-                                    const newStatus = e.target.value;
-                                    setStatus(newStatus);
-                                    setComplete(
-                                        isDoneStatus(newStatus)
-                                            ? DateTime.now().toISO()
-                                            : false
-                                    );
+                                    setStatus(e.target.value);
                                 }}
                             >
                                 {workflowStages().map((stage) => (
