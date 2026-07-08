@@ -25,10 +25,11 @@ import type FullCalendarPlugin from "../main";
  */
 
 const UNCHECKED_RE = /^\s*-\s+\[ \]\s*\S/;
+const ANY_CHECKBOX_RE = /^\s*-\s+\[.\]\s*\S/;
 
 /** Normalized dedup key for a TODO line: text without checkbox/indent. */
 const todoKey = (line: string): string =>
-    line.replace(/^\s*-\s+\[ \]\s*/, "").trim();
+    line.replace(/^\s*-\s+\[.\]\s*/, "").trim();
 
 const escapeRegExp = (s: string): string =>
     s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -141,14 +142,15 @@ export async function rollTodosForward(
         return 0;
     }
 
-    // Seed the dedup set with whatever today's note already holds, so a note
-    // created by the old copying template doesn't get a second copy.
+    // Seed the dedup set with EVERY checkbox line today's note already
+    // holds — unchecked (already rolled) AND checked. A TODO completed today
+    // must not resurrect from a stale unchecked copy in a past note.
     const seen = new Set<string>();
     let todayFile = getDailyNote(moment(), getAllDailyNotes()) as TFile;
     if (todayFile) {
         const contents = await plugin.app.vault.read(todayFile);
         for (const line of contents.split("\n")) {
-            if (UNCHECKED_RE.test(line)) {
+            if (ANY_CHECKBOX_RE.test(line)) {
                 seen.add(todoKey(line));
             }
         }

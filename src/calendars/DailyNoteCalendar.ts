@@ -121,7 +121,11 @@ const checkboxTodo = (s: string) => {
     if (!match || !match[1]) {
         return null;
     }
-    return match[1] === " " ? false : match[1];
+    // Normalize to a boolean: toggleTask writes `completed: true`, and if the
+    // parse returned the raw character ("x") instead, every toggle made the
+    // stored event differ from the re-parse, re-keying the whole file's
+    // events — and the next click on the stale ID silently failed.
+    return match[1] !== " ";
 };
 
 export const getInlineEventFromLine = (
