@@ -102,7 +102,10 @@
 .ofc-kanban-toolbar {
 	display: flex;
 	align-items: center;
-	gap: var(--size-4-2);
+	gap: var(--size-2-3) var(--size-4-2);
+	/* Phones can't fit the whole control row — wrap instead of clipping the
+	   status/sprint toggles off-screen. No-op while everything fits. */
+	flex-wrap: wrap;
 	padding: var(--size-4-2) var(--size-4-2) 0;
 	flex-shrink: 0;
 	/* Match the board: full width while columns are stretching, and once
@@ -118,6 +121,13 @@
 			var(--size-4-2)
 	);
 	margin: 0 auto;
+}
+
+/* Keep dropdowns from monopolizing a wrapped row on narrow screens. */
+.ofc-kanban-toolbar select {
+	min-width: 0;
+	max-width: min(45vw, 16em);
+	text-overflow: ellipsis;
 }
 
 .ofc-kanban-hide-done {
