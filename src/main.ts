@@ -14,8 +14,9 @@ import {
     FullCalendarSettingTab,
 } from "./ui/settings";
 import { PLUGIN_SLUG } from "./types";
-import EventCache from "./core/EventCache";
+import EventCache, { UpdateViewCallback } from "./core/EventCache";
 import { rollTodosForward } from "./core/todoRollover";
+import { reconcileActuals, scheduleActualsSync } from "./core/actualsSync";
 import ReminderService from "./core/ReminderService";
 import { ObsidianIO } from "./ObsidianAdapter";
 import {
@@ -72,6 +73,9 @@ export default class FullCalendarPlugin extends Plugin {
     renderCalendar = renderCalendar;
     processFrontmatter = toEventInput;
 
+    // Keeps task `actual` fields in sync with work-log sessions.
+    private actualsCallback: UpdateViewCallback | null = null;
+
     // Last date rollTodos() completed for, so the interval no-ops within a
     // day. Cleared by the manual command to force a re-run.
     private lastRollDate = "";
@@ -90,6 +94,8 @@ export default class FullCalendarPlugin extends Plugin {
                     `Full Calendar: rolled ${moved} unfinished TODO(s) forward to today.`
                 );
             }
+            // Piggyback the startup/daily reconcile of task `actual` fields.
+            await reconcileActuals(this);
         } catch (e) {
             console.error("Full Calendar: TODO rollover failed.", e);
         }
@@ -154,6 +160,13 @@ export default class FullCalendarPlugin extends Plugin {
             this.app.metadataCache.on("changed", (file) => {
                 this.cache.fileUpdated(file);
             })
+        );
+
+        // Any cached change (session created/resized/deleted, hand edits…)
+        // debounces a reconcile of task `actual` fields. Writes re-fire this
+        // event, find no diffs, and settle.
+        this.actualsCallback = this.cache.on("update", () =>
+            scheduleActualsSync(this)
         );
 
         // Auto-register the task folder when it is (re-)created after launch.
@@ -266,6 +279,17 @@ export default class FullCalendarPlugin extends Plugin {
         });
 
         this.addCommand({
+            id: "full-calendar-recompute-actuals",
+            name: "Recompute task actuals from work-log sessions",
+            callback: async () => {
+                const written = await reconcileActuals(this);
+                new Notice(
+                    `Full Calendar: updated \`actual\` on ${written} task note(s).`
+                );
+            },
+        });
+
+        this.addCommand({
             id: "full-calendar-roll-todos",
             name: "Roll unfinished TODOs forward to today",
             callback: async () => {
@@ -317,6 +341,10 @@ export default class FullCalendarPlugin extends Plugin {
     }
 
     onunload() {
+        if (this.actualsCallback) {
+            this.cache.off("update", this.actualsCallback);
+            this.actualsCallback = null;
+        }
         this.reminderService.stop();
         this.app.workspace.detachLeavesOfType(FULL_CALENDAR_VIEW_TYPE);
         this.app.workspace.detachLeavesOfType(FULL_CALENDAR_SIDEBAR_VIEW_TYPE);

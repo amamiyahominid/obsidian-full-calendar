@@ -114,6 +114,15 @@ export const EventSchema = z.discriminatedUnion("type", [
                 ? n
                 : undefined;
         }, z.number().optional()),
+        // Actual minutes spent, materialized from work-log sessions by
+        // core/actualsSync.ts — a cache of the session totals, never
+        // authored by hand. Same coercion as estimate.
+        actual: z.preprocess((val) => {
+            const n = typeof val === "string" ? parseFloat(val) : val;
+            return typeof n === "number" && isFinite(n) && n > 0
+                ? n
+                : undefined;
+        }, z.number().optional()),
         // External reference (e.g. a Backlog URL). Empty strings and nulls
         // collapse to undefined; writers set null to delete the key.
         link: z.preprocess(
