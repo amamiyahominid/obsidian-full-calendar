@@ -5,6 +5,8 @@ import type FullCalendarPlugin from "../main";
 import { collectTaskCards, Card } from "./kanban";
 import { sprintBucket, weekOf } from "./sprint";
 import { openFileForEvent } from "./actions";
+import { launchEditModal } from "./event_modal";
+import { toggleTask } from "./tasks";
 import { contrastTextColor, getStatusColor, isDoneStatus } from "./colors";
 import {
     actualMinutesByLinktext,
@@ -126,6 +128,21 @@ export function renderTaskTray(
                 cardEl.style.color = contrastTextColor(fill);
             }
 
+            // Finish the task right from the tray. It only lists unfinished
+            // tasks, so the box is always unchecked; ticking it marks the
+            // task done and the card leaves the tray on the cache update.
+            const check = cardEl.createEl("input", {
+                type: "checkbox",
+                cls: "ofc-tray-card-check",
+            });
+            check.setAttr("aria-label", "Mark done");
+            check.onclick = async (ev) => {
+                ev.stopPropagation();
+                await plugin.cache.processEvent(card.id, (e) =>
+                    toggleTask(e, true)
+                );
+            };
+
             const bodyEl = cardEl.createDiv({ cls: "ofc-tray-card-body" });
             bodyEl.createDiv({
                 cls: "ofc-tray-card-title",
@@ -160,14 +177,29 @@ export function renderTaskTray(
                 }
             };
 
-            // Same affordance as calendar events: ctrl/cmd-click opens the
-            // task note. A plain click stays free for drag interactions.
+            // Click opens the edit modal; ctrl/cmd-click opens the task note
+            // (same affordance as calendar events). Suppress the click that
+            // browsers fire after a drag by checking how far the pointer
+            // moved since mousedown.
+            let downAt: { x: number; y: number } | null = null;
+            cardEl.addEventListener("mousedown", (ev) => {
+                downAt = { x: ev.clientX, y: ev.clientY };
+            });
             cardEl.addEventListener("click", async (ev) => {
+                if (
+                    downAt &&
+                    (Math.abs(ev.clientX - downAt.x) > 5 ||
+                        Math.abs(ev.clientY - downAt.y) > 5)
+                ) {
+                    return;
+                }
                 if (
                     ev.getModifierState("Control") ||
                     ev.getModifierState("Meta")
                 ) {
                     await openFileForEvent(plugin.cache, plugin.app, card.id);
+                } else {
+                    launchEditModal(plugin, card.id);
                 }
             });
         }
