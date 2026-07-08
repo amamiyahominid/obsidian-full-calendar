@@ -1,7 +1,7 @@
 import { Notice, TFile } from "obsidian";
 import equal from "deep-equal";
 
-import { Calendar } from "../calendars/Calendar";
+import { Calendar, EventResponse } from "../calendars/Calendar";
 import { EditableCalendar } from "../calendars/EditableCalendar";
 import EventStore, { StoredEvent, EventPathLocation } from "./EventStore";
 import { CalendarInfo, OFCEvent, validateEvent } from "../types";
@@ -167,7 +167,19 @@ export default class EventCache {
         // case an earlier partial populate already inserted some events.
         this.store.clear();
         for (const calendar of this.calendars.values()) {
-            const results = await calendar.getEvents();
+            // One broken source (folder not indexed yet on startup, renamed
+            // project dir, network hiccup) must not abort the whole populate
+            // and blank every other calendar with an uncaught rejection.
+            let results: EventResponse[];
+            try {
+                results = await calendar.getEvents();
+            } catch (e) {
+                console.warn(
+                    `Full Calendar: skipping calendar "${calendar.id}" — could not load events.`,
+                    e
+                );
+                continue;
+            }
             results.forEach(([event, location]) =>
                 this.store.add({
                     calendar,

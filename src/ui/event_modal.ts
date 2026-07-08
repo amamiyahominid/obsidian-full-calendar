@@ -1,6 +1,7 @@
 import { Notice } from "obsidian";
 import * as React from "react";
 import { EditableCalendar } from "src/calendars/EditableCalendar";
+import DailyNoteCalendar from "src/calendars/DailyNoteCalendar";
 import FullCalendarPlugin from "src/main";
 import { OFCEvent } from "src/types";
 import { openFileForEvent } from "./actions";
@@ -19,6 +20,7 @@ export function launchCreateModal(
                 id,
                 type: cal.type,
                 name: cal.name,
+                todos: cal instanceof DailyNoteCalendar && cal.todos,
             };
         });
     const defaultIndex = defaultCalendarId
@@ -59,6 +61,7 @@ export function launchEditModal(plugin: FullCalendarPlugin, eventId: string) {
                 id,
                 type: cal.type,
                 name: cal.name,
+                todos: cal instanceof DailyNoteCalendar && cal.todos,
             };
         });
 

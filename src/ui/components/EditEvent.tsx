@@ -184,6 +184,8 @@ interface EditEventProps {
         id: string;
         name: string;
         type: CalendarInfo["type"];
+        // Daily-note TODO calendar (vs. the work-log heading calendar).
+        todos?: boolean;
     }[];
     defaultCalendarIndex: number;
     initialEvent?: Partial<OFCEvent>;
@@ -263,6 +265,12 @@ export const EditEvent = ({
     const [allDay, setAllDay] = useState(initialEvent?.allDay || false);
 
     const [calendarIndex, setCalendarIndex] = useState(defaultCalendarIndex);
+
+    // Daily-note targets need none of the event-shape controls: work-log
+    // sessions are always timed and checkbox-free, TODO lines always all-day
+    // checkboxes — the calendar classes enforce both on write.
+    const targetCalendar = calendars[calendarIndex];
+    const isDailyNote = targetCalendar?.type === "dailynote";
 
     const initialCompleted =
         initialEvent?.type === "single" ? initialEvent.completed : undefined;
@@ -346,22 +354,28 @@ export const EditEvent = ({
                           // Which field owns done-ness depends on the target:
                           // task notes (local calendars) use `status` and must
                           // not carry a legacy `completed` key; daily-note
-                          // lines use the checkbox (`completed`) and must not
-                          // get a `[status:: ...]` attribute.
+                          // TODO lines use the checkbox (`completed`) and must
+                          // not get a `[status:: ...]` attribute; work-log
+                          // session lines get NEITHER — a checkbox on a
+                          // session would be copied forward by the daily
+                          // template's rollover.
                           const workflowTask =
-                              isTask &&
-                              calendars[calendarIndex]?.type === "local";
+                              isTask && targetCalendar?.type === "local";
+                          const isWorklog =
+                              targetCalendar?.type === "dailynote" &&
+                              !targetCalendar.todos;
                           return {
                               type: "single" as const,
                               date: date || "",
                               endDate: endDate || null,
-                              completed: workflowTask
-                                  ? null
-                                  : isTask
-                                  ? !!complete
-                                  : originalCompleted !== undefined
-                                  ? originalCompleted
-                                  : null,
+                              completed:
+                                  workflowTask || isWorklog
+                                      ? null
+                                      : isTask
+                                      ? !!complete
+                                      : originalCompleted !== undefined
+                                      ? originalCompleted
+                                      : null,
                               // null deletes the frontmatter key (see
                               // modifyFrontmatterString); un-tasking an event
                               // removes it from the workflow entirely.
@@ -425,9 +439,7 @@ export const EditEvent = ({
                                         )
                                     }
                                 >
-                                    {cal.type === "local"
-                                        ? cal.name
-                                        : "Daily Note"}
+                                    {cal.name}
                                 </option>
                             ))}
                     </select>
@@ -472,24 +484,28 @@ export const EditEvent = ({
                         </>
                     )}
                 </p>
-                <p>
-                    <label htmlFor="allDay">All day event </label>
-                    <input
-                        id="allDay"
-                        checked={allDay}
-                        onChange={(e) => setAllDay(e.target.checked)}
-                        type="checkbox"
-                    />
-                </p>
-                <p>
-                    <label htmlFor="recurring">Recurring Event </label>
-                    <input
-                        id="recurring"
-                        checked={isRecurring}
-                        onChange={(e) => setIsRecurring(e.target.checked)}
-                        type="checkbox"
-                    />
-                </p>
+                {!isDailyNote && (
+                    <p>
+                        <label htmlFor="allDay">All day event </label>
+                        <input
+                            id="allDay"
+                            checked={allDay}
+                            onChange={(e) => setAllDay(e.target.checked)}
+                            type="checkbox"
+                        />
+                    </p>
+                )}
+                {!isDailyNote && (
+                    <p>
+                        <label htmlFor="recurring">Recurring Event </label>
+                        <input
+                            id="recurring"
+                            checked={isRecurring}
+                            onChange={(e) => setIsRecurring(e.target.checked)}
+                            type="checkbox"
+                        />
+                    </p>
+                )}
 
                 {isRecurring && (
                     <>
@@ -550,19 +566,21 @@ export const EditEvent = ({
                         </p>
                     </>
                 )}
-                <p>
-                    <label htmlFor="task">Task Event </label>
-                    <input
-                        id="task"
-                        checked={isTask}
-                        onChange={(e) => {
-                            setIsTask(e.target.checked);
-                        }}
-                        type="checkbox"
-                    />
-                </p>
+                {!isDailyNote && (
+                    <p>
+                        <label htmlFor="task">Task Event </label>
+                        <input
+                            id="task"
+                            checked={isTask}
+                            onChange={(e) => {
+                                setIsTask(e.target.checked);
+                            }}
+                            type="checkbox"
+                        />
+                    </p>
+                )}
 
-                {isTask && (
+                {!isDailyNote && isTask && (
                     <>
                         <label htmlFor="taskStatus">Complete? </label>
                         <input

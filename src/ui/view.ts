@@ -211,6 +211,13 @@ export class CalendarView extends ItemView {
             return;
         }
         if (!this.plugin.cache.initialized) {
+            // Restored views open before the vault index is complete on
+            // startup; populating then throws "Cannot get folder" for sources
+            // whose folders haven't been indexed yet. onLayoutReady resolves
+            // immediately if startup already finished.
+            await new Promise<void>((resolve) =>
+                this.app.workspace.onLayoutReady(resolve)
+            );
             await this.plugin.cache.populate();
         }
 
