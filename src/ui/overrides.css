@@ -1,54 +1,54 @@
 .is-phone .fc {
-	height: calc(100% - 4rem);
+    height: calc(100% - 4rem);
 }
 .fc {
-	height: 100%;
-	--fc-button-text-color: var(--text-normal);
-	--fc-button-bg-color: var(--interactive-normal);
-	--fc-button-border-color: var(--interactive-normal);
+    height: 100%;
+    --fc-button-text-color: var(--text-normal);
+    --fc-button-bg-color: var(--interactive-normal);
+    --fc-button-border-color: var(--interactive-normal);
 
-	--fc-button-hover-bg-color: var(--interactive-hover);
-	--fc-button-hover-border-color: var(--interactive-hover);
+    --fc-button-hover-bg-color: var(--interactive-hover);
+    --fc-button-hover-border-color: var(--interactive-hover);
 
-	--fc-button-active-border-color: var(--interactive-accent);
-	--fc-button-active-bg-color: var(--interactive-accent);
+    --fc-button-active-border-color: var(--interactive-accent);
+    --fc-button-active-bg-color: var(--interactive-accent);
 
-	--fc-event-border-color: var(--interactive-accent);
-	--fc-event-bg-color: var(--interactive-accent);
-	--fc-event-text-color: var(--text-on-accent);
+    --fc-event-border-color: var(--interactive-accent);
+    --fc-event-bg-color: var(--interactive-accent);
+    --fc-event-text-color: var(--text-on-accent);
 
-	--fc-list-event-hover-bg-color: var(--background-secondary);
-	--fc-neutral-bg-color: var(--background-primary-alt);
+    --fc-list-event-hover-bg-color: var(--background-secondary);
+    --fc-neutral-bg-color: var(--background-primary-alt);
 
-	--fc-page-bg-color: var(--background-primary);
-	--fc-border-color: var(--background-modifier-border);
+    --fc-page-bg-color: var(--background-primary);
+    --fc-border-color: var(--background-modifier-border);
 
-	--fc-now-indicator-color: var(--text-error-hover);
+    --fc-now-indicator-color: var(--text-error-hover);
 
-	--fc-more-link-bg-color: var(--background-primary-alt);
-	--fc-more-link-text-color: var(--text-accent);
+    --fc-more-link-bg-color: var(--background-primary-alt);
+    --fc-more-link-text-color: var(--text-accent);
 
-	--fc-today-bg-color: var(--background-modifier-cover);
+    --fc-today-bg-color: var(--background-modifier-cover);
 
-	--fc-neutral-text-color: var(--text-muted);
-	--fc-neutral-bg-color: var(--interactive-normal);
+    --fc-neutral-text-color: var(--text-muted);
+    --fc-neutral-bg-color: var(--interactive-normal);
 
-	--fc-highlight-color: var(--text-highlight-bg);
-	--fc-bg-event-color: var(--background-modifier-success);
-	--fc-non-business-color: var(--background-modifier-box-shadow);
+    --fc-highlight-color: var(--text-highlight-bg);
+    --fc-bg-event-color: var(--background-modifier-success);
+    --fc-non-business-color: var(--background-modifier-box-shadow);
 }
 
 .fc a {
-	text-decoration-line: none;
+    text-decoration-line: none;
 }
 
 .fc-button-active {
-	color: var(--text-on-accent) !important;
+    color: var(--text-on-accent) !important;
 }
 .fc .fc-button {
-	border: 0px solid transparent !important;
-	line-height: 1 !important;
-	padding: var(--size-4-1) var(--size-4-3) !important;
+    border: 0px solid transparent !important;
+    line-height: 1 !important;
+    padding: var(--size-4-1) var(--size-4-3) !important;
 }
 
 /* The event fill is the task status color and the border is the source color.
@@ -58,426 +58,431 @@
 .fc-daygrid-event,
 .fc-timegrid-event,
 .fc-list-event {
-	border-left-width: 5px !important;
+    border-left-width: 5px !important;
 }
 
 .ofc-has-checkbox {
-	display: flex !important;
+    display: flex !important;
 }
 
 .ofc-has-checkbox.fc-list-event-title {
-	align-items: center;
+    align-items: center;
 }
 
 .ofc-task-completed .fc-event-title {
-	text-decoration: line-through;
+    text-decoration: line-through;
 }
 
 .ofc-task-completed .fc-list-event-title {
-	text-decoration: line-through;
+    text-decoration: line-through;
 }
 
 .ofc-task-completed {
-	opacity: 0.8;
+    opacity: 0.8;
+}
+
+/* Phone: the event checkbox needs a real tap target. */
+.is-phone .fc input[type="checkbox"] {
+    width: 1.15rem;
+    height: 1.15rem;
 }
 
 .ofc-checkbox-white {
-	border-color: white !important;
-	border-width: 1px !important;
+    border-color: white !important;
+    border-width: 1px !important;
 }
 
 .ofc-checkbox-black {
-	border-color: black !important;
-	border-width: 1px !important;
+    border-color: black !important;
+    border-width: 1px !important;
 }
 
 /* ---- Kanban board ---- */
 
 .ofc-kanban {
-	display: flex;
-	flex-direction: column;
-	height: 100%;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
 }
 
 .ofc-kanban-toolbar {
-	display: flex;
-	align-items: center;
-	gap: var(--size-2-3) var(--size-4-2);
-	/* Phones can't fit the whole control row — wrap instead of clipping the
+    display: flex;
+    align-items: center;
+    gap: var(--size-2-3) var(--size-4-2);
+    /* Phones can't fit the whole control row — wrap instead of clipping the
 	   status/sprint toggles off-screen. No-op while everything fits. */
-	flex-wrap: wrap;
-	padding: var(--size-4-2) var(--size-4-2) 0;
-	flex-shrink: 0;
-	/* Match the board: full width while columns are stretching, and once
+    flex-wrap: wrap;
+    padding: var(--size-4-2) var(--size-4-2) 0;
+    flex-shrink: 0;
+    /* Match the board: full width while columns are stretching, and once
 	   they hit their 320px cap (board group centers itself), cap the toolbar
 	   at that same total width and center it, so the toolbar's left edge
 	   tracks the first column instead of the pane edge. Width terms mirror
 	   .ofc-kanban-board/.ofc-kanban-column: column max-width, column gap,
 	   and the board's horizontal padding. */
-	width: 100%;
-	max-width: calc(
-		var(--ofc-kanban-cols, 5) * 320px +
-			(var(--ofc-kanban-cols, 5) - 1) * var(--size-4-3) + 2 *
-			var(--size-4-2)
-	);
-	margin: 0 auto;
+    width: 100%;
+    max-width: calc(
+        var(--ofc-kanban-cols, 5) * 320px + (var(--ofc-kanban-cols, 5) - 1) *
+            var(--size-4-3) + 2 * var(--size-4-2)
+    );
+    margin: 0 auto;
 }
 
 /* Keep dropdowns from monopolizing a wrapped row on narrow screens. */
 .ofc-kanban-toolbar select {
-	min-width: 0;
-	max-width: min(45vw, 16em);
-	text-overflow: ellipsis;
+    min-width: 0;
+    max-width: min(45vw, 16em);
+    text-overflow: ellipsis;
 }
 
 .ofc-kanban-hide-done {
-	display: flex;
-	align-items: center;
-	gap: var(--size-2-2);
-	font-size: var(--font-ui-small);
-	color: var(--text-muted);
-	cursor: pointer;
-	user-select: none;
+    display: flex;
+    align-items: center;
+    gap: var(--size-2-2);
+    font-size: var(--font-ui-small);
+    color: var(--text-muted);
+    cursor: pointer;
+    user-select: none;
 }
 
 .ofc-kanban-groupby {
-	display: flex;
-	border: 1px solid var(--background-modifier-border);
-	border-radius: var(--radius-s);
-	overflow: hidden;
+    display: flex;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
+    overflow: hidden;
 }
 
 .ofc-kanban-groupby button {
-	border: none;
-	border-radius: 0;
-	box-shadow: none;
-	background-color: var(--background-secondary);
-	color: var(--text-muted);
-	font-size: var(--font-ui-small);
-	padding: var(--size-2-2) var(--size-4-2);
-	cursor: pointer;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    background-color: var(--background-secondary);
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+    padding: var(--size-2-2) var(--size-4-2);
+    cursor: pointer;
 }
 
 .ofc-kanban-groupby button.ofc-kanban-groupby-active {
-	background-color: var(--interactive-accent);
-	color: var(--text-on-accent);
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent);
 }
 
 .ofc-kanban-board {
-	display: flex;
-	gap: var(--size-4-3);
-	flex-grow: 1;
-	min-height: 0;
-	overflow-x: auto;
-	align-items: flex-start;
-	/* Columns grow to fill the pane up to their max width; any leftover
+    display: flex;
+    gap: var(--size-4-3);
+    flex-grow: 1;
+    min-height: 0;
+    overflow-x: auto;
+    align-items: flex-start;
+    /* Columns grow to fill the pane up to their max width; any leftover
 	   space is split evenly around the group instead of piling up on the
 	   right. `safe` keeps the first column reachable when they overflow. */
-	justify-content: safe center;
-	padding: var(--size-4-2);
+    justify-content: safe center;
+    padding: var(--size-4-2);
 }
 
 .ofc-kanban-column {
-	flex: 1 1 240px;
-	min-width: 220px;
-	max-width: 320px;
-	max-height: 100%;
-	display: flex;
-	flex-direction: column;
-	background-color: var(--background-secondary);
-	border: 1px solid var(--background-modifier-border);
-	border-radius: var(--radius-m);
+    flex: 1 1 240px;
+    min-width: 220px;
+    max-width: 320px;
+    max-height: 100%;
+    display: flex;
+    flex-direction: column;
+    background-color: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-m);
 }
 
 .ofc-kanban-column.ofc-kanban-dragover {
-	border-color: var(--interactive-accent);
-	background-color: var(--background-modifier-hover);
+    border-color: var(--interactive-accent);
+    background-color: var(--background-modifier-hover);
 }
 
 .ofc-kanban-column-header {
-	display: flex;
-	align-items: center;
-	gap: var(--size-2-2);
-	padding: var(--size-4-2) var(--size-4-2) var(--size-2-2);
-	font-weight: var(--font-semibold);
+    display: flex;
+    align-items: center;
+    gap: var(--size-2-2);
+    padding: var(--size-4-2) var(--size-4-2) var(--size-2-2);
+    font-weight: var(--font-semibold);
 }
 
 .ofc-kanban-dot {
-	width: 10px;
-	height: 10px;
-	border-radius: 50%;
-	flex-shrink: 0;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
 }
 
 .ofc-kanban-column-title {
-	flex-grow: 1;
-	font-size: var(--font-ui-small);
+    flex-grow: 1;
+    font-size: var(--font-ui-small);
 }
 
 .ofc-kanban-count {
-	font-size: var(--font-ui-smaller);
-	color: var(--text-muted);
-	background-color: var(--background-modifier-border);
-	border-radius: var(--radius-s);
-	padding: 0 var(--size-2-2);
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    background-color: var(--background-modifier-border);
+    border-radius: var(--radius-s);
+    padding: 0 var(--size-2-2);
 }
 
 .ofc-kanban-hours {
-	font-size: var(--font-ui-smaller);
-	color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
 }
 
 .ofc-kanban-add {
-	flex-shrink: 0;
-	padding: var(--size-2-1);
-	--icon-size: var(--icon-s);
+    flex-shrink: 0;
+    padding: var(--size-2-1);
+    --icon-size: var(--icon-s);
 }
 
 /* This week's column on the sprint axis. */
 .ofc-kanban-column-current {
-	border-color: var(--interactive-accent);
+    border-color: var(--interactive-accent);
 }
 
 /* Carry-over is display-only (no drop target): visually recede a step. */
 .ofc-kanban-column-nodrop {
-	border-style: dashed;
-	background-color: transparent;
+    border-style: dashed;
+    background-color: transparent;
 }
 
 .ofc-kanban-card-status {
-	font-size: var(--font-ui-smaller);
-	border-radius: var(--radius-s);
-	padding: 0 var(--size-2-2);
+    font-size: var(--font-ui-smaller);
+    border-radius: var(--radius-s);
+    padding: 0 var(--size-2-2);
 }
 
 .ofc-kanban-cards {
-	display: flex;
-	flex-direction: column;
-	gap: var(--size-2-3);
-	padding: var(--size-2-3) var(--size-4-2) var(--size-4-2);
-	overflow-y: auto;
-	min-height: 3em; /* keep an empty column droppable */
+    display: flex;
+    flex-direction: column;
+    gap: var(--size-2-3);
+    padding: var(--size-2-3) var(--size-4-2) var(--size-4-2);
+    overflow-y: auto;
+    min-height: 3em; /* keep an empty column droppable */
 }
 
 .ofc-kanban-card {
-	background-color: var(--background-primary);
-	border: 1px solid var(--background-modifier-border);
-	border-left-width: 5px;
-	border-radius: var(--radius-s);
-	padding: var(--size-2-3) var(--size-4-2);
-	cursor: grab;
+    background-color: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-left-width: 5px;
+    border-radius: var(--radius-s);
+    padding: var(--size-2-3) var(--size-4-2);
+    cursor: grab;
 }
 
 .ofc-kanban-card:hover {
-	background-color: var(--background-modifier-hover);
+    background-color: var(--background-modifier-hover);
 }
 
 .ofc-kanban-card.ofc-kanban-dragging {
-	opacity: 0.5;
+    opacity: 0.5;
 }
 
 .ofc-kanban-card-title {
-	font-size: var(--font-ui-small);
+    font-size: var(--font-ui-small);
 }
 
 .ofc-kanban-card-title.ofc-kanban-card-done {
-	text-decoration: line-through;
-	color: var(--text-muted);
+    text-decoration: line-through;
+    color: var(--text-muted);
 }
 
 .ofc-kanban-card-meta {
-	display: flex;
-	align-items: center;
-	gap: var(--size-2-2);
-	flex-wrap: wrap;
-	margin-top: var(--size-2-1);
+    display: flex;
+    align-items: center;
+    gap: var(--size-2-2);
+    flex-wrap: wrap;
+    margin-top: var(--size-2-1);
 }
 
 .ofc-kanban-card-date {
-	font-size: var(--font-ui-smaller);
-	color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
 }
 
 .ofc-kanban-card-sprint {
-	font-size: var(--font-ui-smaller);
-	color: var(--text-muted);
-	background-color: var(--background-modifier-border);
-	border-radius: var(--radius-s);
-	padding: 0 var(--size-2-2);
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    background-color: var(--background-modifier-border);
+    border-radius: var(--radius-s);
+    padding: 0 var(--size-2-2);
 }
 
 .ofc-kanban-card-sprint-current {
-	background-color: var(--interactive-accent);
-	color: var(--text-on-accent);
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent);
 }
 
 .ofc-kanban-card-date.ofc-kanban-card-overdue {
-	color: var(--text-error);
+    color: var(--text-error);
 }
 
 .ofc-kanban-empty {
-	color: var(--text-muted);
-	padding: var(--size-4-4);
+    color: var(--text-muted);
+    padding: var(--size-4-4);
 }
 
 /* ---- Task tray (calendar side panel) ---- */
 
 .ofc-calendar-layout {
-	display: flex;
-	height: 100%;
-	gap: var(--size-4-2);
+    display: flex;
+    height: 100%;
+    gap: var(--size-4-2);
 }
 
 .ofc-calendar-main {
-	flex: 1;
-	min-width: 0;
-	height: 100%;
+    flex: 1;
+    min-width: 0;
+    height: 100%;
 }
 
 .ofc-task-tray {
-	/* Width is set inline from settings.trayWidth; this is the fallback. */
-	width: 220px;
-	flex-shrink: 0;
-	overflow-y: auto;
-	padding-right: var(--size-4-2);
-	border-right: 1px solid var(--background-modifier-border);
+    /* Width is set inline from settings.trayWidth; this is the fallback. */
+    width: 220px;
+    flex-shrink: 0;
+    overflow-y: auto;
+    padding-right: var(--size-4-2);
+    border-right: 1px solid var(--background-modifier-border);
 }
 
 /* Draggable divider between the tray and the calendar. */
 .ofc-tray-resizer {
-	width: 6px;
-	/* Pull into the flex gap so the gutter stays visually tight. */
-	margin: 0 -4px;
-	flex-shrink: 0;
-	cursor: col-resize;
-	border-radius: 3px;
+    width: 6px;
+    /* Pull into the flex gap so the gutter stays visually tight. */
+    margin: 0 -4px;
+    flex-shrink: 0;
+    cursor: col-resize;
+    border-radius: 3px;
 }
 
 .ofc-tray-resizer:hover,
 .ofc-tray-resizer.is-dragging {
-	background-color: var(--interactive-accent);
+    background-color: var(--interactive-accent);
 }
 
 .ofc-tray-header {
-	font-size: var(--font-ui-smaller);
-	font-weight: 600;
-	color: var(--text-muted);
-	margin: var(--size-2-2) 0 var(--size-4-2);
+    font-size: var(--font-ui-smaller);
+    font-weight: 600;
+    color: var(--text-muted);
+    margin: var(--size-2-2) 0 var(--size-4-2);
 }
 
 .ofc-tray-card {
-	padding: var(--size-2-2) var(--size-2-3);
-	margin-bottom: var(--size-2-3);
-	border-radius: var(--radius-s);
-	background-color: var(--background-secondary);
-	/* Colors come inline from the card's calendar source + status, mirroring
+    padding: var(--size-2-2) var(--size-2-3);
+    margin-bottom: var(--size-2-3);
+    border-radius: var(--radius-s);
+    background-color: var(--background-secondary);
+    /* Colors come inline from the card's calendar source + status, mirroring
 	   how the calendar paints events; these are just fallbacks. */
-	border: 1px solid var(--interactive-accent);
-	border-left-width: 3px;
-	cursor: grab;
+    border: 1px solid var(--interactive-accent);
+    border-left-width: 3px;
+    cursor: grab;
 }
 
 .ofc-tray-card:active {
-	cursor: grabbing;
+    cursor: grabbing;
 }
 
 .ofc-tray-card-title {
-	font-size: var(--font-ui-small);
+    font-size: var(--font-ui-small);
 }
 
 .ofc-tray-card-meta {
-	font-size: var(--font-ui-smaller);
-	color: inherit;
-	opacity: 0.8;
-	margin-top: var(--size-2-1);
+    font-size: var(--font-ui-smaller);
+    color: inherit;
+    opacity: 0.8;
+    margin-top: var(--size-2-1);
 }
 
 .ofc-tray-empty {
-	font-size: var(--font-ui-small);
-	color: var(--text-faint);
+    font-size: var(--font-ui-small);
+    color: var(--text-faint);
 }
 
 /* ---- Tray start/stop sessions ---- */
 
 .ofc-tray-card {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: var(--size-2-2);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--size-2-2);
 }
 
 .ofc-tray-card-body {
-	/* Take all remaining width so short titles hug the left edge instead of
+    /* Take all remaining width so short titles hug the left edge instead of
 	   floating to the middle of the space-between row. */
-	flex: 1;
-	min-width: 0;
+    flex: 1;
+    min-width: 0;
 }
 
 .ofc-tray-card-btn {
-	flex-shrink: 0;
-	width: 26px;
-	height: 26px;
-	padding: 0;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	background: transparent;
-	box-shadow: none;
-	border: 1px solid currentColor;
-	border-radius: var(--radius-s);
-	color: inherit;
-	opacity: 0.7;
-	cursor: pointer;
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    box-shadow: none;
+    border: 1px solid currentColor;
+    border-radius: var(--radius-s);
+    color: inherit;
+    opacity: 0.7;
+    cursor: pointer;
 }
 
 .ofc-tray-card-btn:hover {
-	opacity: 1;
+    opacity: 1;
 }
 
 .ofc-tray-card-btn .svg-icon {
-	width: 14px;
-	height: 14px;
+    width: 14px;
+    height: 14px;
 }
 
 /* The green edge marks the running task; !important beats the inline
    source-color border the card gets from JS. */
 .ofc-tray-card-running {
-	border-left-color: var(--color-green) !important;
+    border-left-color: var(--color-green) !important;
 }
 
 .ofc-tray-card-running .ofc-tray-card-meta {
-	font-weight: 600;
-	opacity: 1;
+    font-weight: 600;
+    opacity: 1;
 }
 
 .ofc-tray-warning {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: var(--size-2-2);
-	font-size: var(--font-ui-smaller);
-	color: var(--text-warning);
-	background-color: var(--background-modifier-error-hover);
-	border-radius: var(--radius-s);
-	padding: var(--size-2-2) var(--size-2-3);
-	margin-bottom: var(--size-2-3);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--size-2-2);
+    font-size: var(--font-ui-smaller);
+    color: var(--text-warning);
+    background-color: var(--background-modifier-error-hover);
+    border-radius: var(--radius-s);
+    padding: var(--size-2-2) var(--size-2-3);
+    margin-bottom: var(--size-2-3);
 }
 
 .ofc-kanban-card-actual {
-	font-size: var(--font-ui-smaller);
-	color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
 }
 
 .ofc-tray-card-check {
-	flex-shrink: 0;
-	margin: 0;
-	cursor: pointer;
+    flex-shrink: 0;
+    margin: 0;
+    cursor: pointer;
 }
 
 /* ---- Mobile tray: on-demand vertical task list ---- */
 
 .ofc-calendar-layout-mobile {
-	flex-direction: column;
+    flex-direction: column;
 }
 
 /* Phones: reserve space for Obsidian's bottom toolbar at the LAYOUT level.
@@ -485,41 +490,41 @@
    child; inside the tray layout it left the wrapper full-height and the
    calendar footer collided with the app's navigation bar. */
 .is-phone .ofc-calendar-layout {
-	height: calc(100% - 4rem);
+    height: calc(100% - 4rem);
 }
 
 .is-phone .ofc-calendar-layout .fc {
-	height: 100%;
+    height: 100%;
 }
 
 /* In the column layout the pane height comes from flex, not an inherited
    100% (which would overflow past the footer). */
 .ofc-calendar-layout-mobile .ofc-calendar-main {
-	height: auto;
-	min-height: 0;
-	flex: 1;
+    height: auto;
+    min-height: 0;
+    flex: 1;
 }
 
 .ofc-task-tray-mobile-list {
-	width: 100%;
-	flex: 1;
-	min-height: 0;
-	overflow-y: auto;
-	border-right: none;
-	padding: var(--size-2-2) var(--size-2-2) var(--size-4-4);
-	-webkit-overflow-scrolling: touch;
+    width: 100%;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    border-right: none;
+    padding: var(--size-2-2) var(--size-2-2) var(--size-4-4);
+    -webkit-overflow-scrolling: touch;
 }
 
 .ofc-task-tray-mobile-list.is-hidden,
 .ofc-calendar-main.is-hidden {
-	display: none;
+    display: none;
 }
 
 /* Done tasks stay listed (glanceable retro, undo-able mis-taps) but recede. */
 .ofc-tray-card-done {
-	opacity: 0.65;
+    opacity: 0.65;
 }
 
 .ofc-tray-card-done .ofc-tray-card-title {
-	text-decoration: line-through;
+    text-decoration: line-through;
 }

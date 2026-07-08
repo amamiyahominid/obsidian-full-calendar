@@ -311,12 +311,14 @@ export const EditEvent = ({
     const initialSprint =
         initialEvent?.type === "single" ? initialEvent.sprint : undefined;
 
-    // Read-only passthrough of a daily-note line's checkbox state; the
-    // calendar's own checkbox is where it gets toggled.
-    const complete =
+    // A daily-note line's checkbox state. Editable here for TODO targets
+    // (the only completion control reachable on mobile, where the block's
+    // tiny checkbox is impractical); workflow tasks use Status instead.
+    const [complete, setComplete] = useState<string | boolean | null>(
         initialCompleted !== null && initialCompleted !== undefined
             ? initialCompleted
-            : false;
+            : false
+    );
 
     // Tasks are created from the kanban board (its + button seeds a
     // status), never from the calendar — so task-ness is fixed by what the
@@ -537,6 +539,19 @@ export const EditEvent = ({
                         </>
                     )}
                 </p>
+                {isTodoTarget && isTask && (
+                    <p>
+                        <label htmlFor="todoComplete">Completed </label>
+                        <input
+                            id="todoComplete"
+                            checked={
+                                !(complete === false || complete === undefined)
+                            }
+                            onChange={(e) => setComplete(e.target.checked)}
+                            type="checkbox"
+                        />
+                    </p>
+                )}
                 {((!isDailyNote && !isTask) || isTodoTarget) && (
                     <p>
                         <label htmlFor="allDay">All day event </label>
