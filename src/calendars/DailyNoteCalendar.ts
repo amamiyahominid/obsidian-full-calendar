@@ -258,7 +258,7 @@ type AddToHeadingProps = {
     item: OFCEvent;
     headingText: string;
 };
-const addToHeading = (
+export const addToHeading = (
     page: string,
     { heading, item, headingText }: AddToHeadingProps
 ): { page: string; lineNumber: number } => {
@@ -267,7 +267,25 @@ const addToHeading = (
     const listItem = makeListItem(item);
     if (heading) {
         const headingLine = heading.position.start.line;
-        const lineNumber = headingLine + 1;
+        // Append at the END of the heading's section so entries read
+        // chronologically (a work log grows downward). The section ends at
+        // the next heading of the same or higher level, or at EOF; trailing
+        // blank lines stay below the inserted item.
+        let boundary = lines.length;
+        for (let i = headingLine + 1; i < lines.length; i++) {
+            const match = lines[i].match(/^(#{1,6})\s/);
+            if (match && match[1].length <= heading.level) {
+                boundary = i;
+                break;
+            }
+        }
+        let lineNumber = boundary;
+        while (
+            lineNumber > headingLine + 1 &&
+            lines[lineNumber - 1].trim() === ""
+        ) {
+            lineNumber--;
+        }
         lines.splice(lineNumber, 0, listItem);
         return { page: lines.join("\n"), lineNumber };
     } else {
@@ -397,14 +415,11 @@ export default class DailyNoteCalendar extends EditableCalendar {
 
         const metadata = await this.app.waitForMetadata(file);
 
+        // A missing heading is fine — addToHeading appends it to the end of
+        // the note, so notes created before the work-log workflow just work.
         const headingInfo = metadata.headings?.find(
             (h) => h.heading == this.heading
         );
-        if (!headingInfo) {
-            throw new Error(
-                `Could not find heading ${this.heading} in daily note ${file.path}.`
-            );
-        }
         let lineNumber = await this.app.rewrite(file, (contents) => {
             const { page, lineNumber } = addToHeading(contents, {
                 heading: headingInfo,
@@ -495,14 +510,11 @@ export default class DailyNoteCalendar extends EditableCalendar {
             if (!metadata) {
                 throw new Error("No metadata for file " + file.path);
             }
+            // A missing heading is fine — addToHeading appends it to the end
+            // of the destination note.
             const headingInfo = this.todos
                 ? undefined
                 : metadata.headings?.find((h) => h.heading == this.heading);
-            if (!this.todos && !headingInfo) {
-                throw new Error(
-                    `Could not find heading ${this.heading} in daily note ${file.path}.`
-                );
-            }
 
             await this.app.rewrite(file, async (oldFileContents) => {
                 // Open the old file and remove the event.

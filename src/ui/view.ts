@@ -1,5 +1,5 @@
 import "./overrides.css";
-import { ItemView, Menu, Notice, WorkspaceLeaf } from "obsidian";
+import { ItemView, Menu, Notice, Platform, WorkspaceLeaf } from "obsidian";
 import { Calendar, EventSourceInput } from "@fullcalendar/core";
 import { renderCalendar } from "./calendar";
 import FullCalendarPlugin from "../main";
@@ -15,6 +15,8 @@ import { launchCreateModal, launchEditModal } from "./event_modal";
 import { isTask, toggleTask, unmakeTask } from "src/ui/tasks";
 import { UpdateViewCallback } from "src/core/EventCache";
 import DailyNoteCalendar from "src/calendars/DailyNoteCalendar";
+import { createSession } from "src/core/worklog";
+import { renderTaskTray, TaskTray } from "./tray";
 import { FULL_CALENDAR_KANBAN_VIEW_TYPE } from "./kanban";
 
 export const FULL_CALENDAR_VIEW_TYPE = "full-calendar-view";
@@ -57,6 +59,7 @@ export class CalendarView extends ItemView {
     inSidebar: boolean;
     fullCalendarView: Calendar | null = null;
     callback: UpdateViewCallback | null = null;
+    taskTray: TaskTray | null = null;
     // onOpen() re-runs on the same view instance (e.g. activateView() calls it
     // on existing leaves), but the header action must only be added once.
     kanbanActionAdded = false;
@@ -127,16 +130,24 @@ export class CalendarView extends ItemView {
 
         const container = this.containerEl.children[1];
         container.empty();
-        let calendarEl = container.createEl("div");
 
         if (
             this.plugin.settings.calendarSources.filter(
                 (s) => s.type !== "FOR_TEST_ONLY"
             ).length === 0
         ) {
-            renderOnboarding(this.app, this.plugin, calendarEl);
+            renderOnboarding(this.app, this.plugin, container.createEl("div"));
             return;
         }
+
+        // Task tray beside the calendar (main tab, desktop only — the
+        // sidebar and phones are too narrow for a second column).
+        const layoutEl = container.createDiv({ cls: "ofc-calendar-layout" });
+        const trayEl =
+            !this.inSidebar && !Platform.isMobile
+                ? layoutEl.createDiv({ cls: "ofc-task-tray" })
+                : null;
+        let calendarEl = layoutEl.createDiv({ cls: "ofc-calendar-main" });
 
         const sources: EventSourceInput[] = this.translateSources();
 
@@ -151,6 +162,18 @@ export class CalendarView extends ItemView {
             isTodoSource: (sourceId) => {
                 const cal = this.plugin.cache.getCalendarById(sourceId);
                 return cal instanceof DailyNoteCalendar && cal.todos;
+            },
+            onExternalDrop: async (info) => {
+                const title = info.event.title;
+                const start = info.event.start;
+                const allDay = info.event.allDay;
+                // Drop FullCalendar's temporary event; persisting through the
+                // cache adds the real one back via the update callback.
+                info.event.remove();
+                if (!title || !start) {
+                    return;
+                }
+                await createSession(this.plugin, title, start, allDay);
             },
             eventClick: async (info) => {
                 try {
@@ -326,6 +349,9 @@ export class CalendarView extends ItemView {
         // @ts-ignore
         window.fc = this.fullCalendarView;
 
+        this.taskTray?.destroy();
+        this.taskTray = trayEl ? renderTaskTray(this.plugin, trayEl) : null;
+
         this.registerDomEvent(this.containerEl, "mouseenter", () => {
             this.plugin.cache.revalidateRemoteCalendars();
         });
@@ -335,6 +361,10 @@ export class CalendarView extends ItemView {
             this.callback = null;
         }
         this.callback = this.plugin.cache.on("update", (payload) => {
+            // Any cache change can affect which tasks belong in the tray
+            // (status flips, sprint moves, new tasks); re-render it wholesale,
+            // it's cheap.
+            this.taskTray?.refresh();
             if (payload.type === "resync") {
                 this.fullCalendarView?.removeAllEventSources();
                 const sources = this.translateSources();
@@ -406,5 +436,7 @@ export class CalendarView extends ItemView {
             this.plugin.cache.off("update", this.callback);
             this.callback = null;
         }
+        this.taskTray?.destroy();
+        this.taskTray = null;
     }
 }

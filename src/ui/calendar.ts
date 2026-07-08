@@ -54,6 +54,13 @@ interface ExtraRenderProps {
     // snapshot, so calendars added after the view opened are still
     // recognized.
     isTodoSource?: (sourceId: string) => boolean;
+    // Fires when an external element (a task-tray card) is dropped onto the
+    // calendar. FullCalendar has already added a temporary event; the handler
+    // is responsible for removing it and persisting the real one.
+    onExternalDrop?: (info: {
+        event: EventApi;
+        revert: () => void;
+    }) => Promise<void>;
 }
 
 export function renderCalendar(
@@ -71,6 +78,7 @@ export function renderCalendar(
         openContextMenuForEvent,
         toggleTask,
         isTodoSource,
+        onExternalDrop,
     } = settings || {};
     const modifyEventCallback =
         modifyEvent &&
@@ -204,6 +212,10 @@ export function renderCalendar(
         forceEventDuration: true,
         eventDrop: modifyEventCallback,
         eventResize: modifyEventCallback,
+
+        // External drags from the task tray.
+        droppable: !!onExternalDrop,
+        eventReceive: onExternalDrop,
 
         eventMouseEnter,
 

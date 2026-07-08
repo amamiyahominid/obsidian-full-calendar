@@ -309,3 +309,60 @@
 	color: var(--text-muted);
 	padding: var(--size-4-4);
 }
+
+/* ---- Task tray (calendar side panel) ---- */
+
+.ofc-calendar-layout {
+	display: flex;
+	height: 100%;
+	gap: var(--size-4-2);
+}
+
+.ofc-calendar-main {
+	flex: 1;
+	min-width: 0;
+	height: 100%;
+}
+
+.ofc-task-tray {
+	width: 220px;
+	flex-shrink: 0;
+	overflow-y: auto;
+	padding-right: var(--size-4-2);
+	border-right: 1px solid var(--background-modifier-border);
+}
+
+.ofc-tray-header {
+	font-size: var(--font-ui-smaller);
+	font-weight: 600;
+	color: var(--text-muted);
+	margin: var(--size-2-2) 0 var(--size-4-2);
+}
+
+.ofc-tray-card {
+	padding: var(--size-2-2) var(--size-2-3);
+	margin-bottom: var(--size-2-3);
+	border-radius: var(--radius-s);
+	background-color: var(--background-secondary);
+	border-left: 3px solid var(--interactive-accent);
+	cursor: grab;
+}
+
+.ofc-tray-card:active {
+	cursor: grabbing;
+}
+
+.ofc-tray-card-title {
+	font-size: var(--font-ui-small);
+}
+
+.ofc-tray-card-meta {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	margin-top: var(--size-2-1);
+}
+
+.ofc-tray-empty {
+	font-size: var(--font-ui-small);
+	color: var(--text-faint);
+}

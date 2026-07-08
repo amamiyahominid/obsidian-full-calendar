@@ -31,12 +31,48 @@ const PLANNING_WEEKS_AHEAD = 3;
 
 type GroupBy = "status" | "sprint";
 
-type Card = {
+export type Card = {
     id: string;
     event: Extract<OFCEvent, { type: "single" }>;
     calendarId: string;
     sourceColor: string | null | undefined;
 };
+
+/**
+ * All workflow task cards: single events from project (full-note) calendars
+ * that opted into the workflow (status set) or are tasks. Daily-note sources
+ * are excluded — their checkbox lines are day-scoped TODOs and work-log
+ * sessions, not 案件, and would otherwise flood the Backlog column.
+ */
+export function collectTaskCards(plugin: FullCalendarPlugin): Card[] {
+    const cards: Card[] = [];
+    for (const source of plugin.cache.getAllEvents()) {
+        if (!source.editable || source.id.startsWith("dailynote")) {
+            continue;
+        }
+        for (const { id, event } of source.events) {
+            if (event.type !== "single") {
+                continue;
+            }
+            if (event.status === undefined && !isTask(event)) {
+                continue;
+            }
+            cards.push({
+                id,
+                event,
+                calendarId: source.id,
+                sourceColor: source.color,
+            });
+        }
+    }
+    cards.sort((a, b) => {
+        const dateCmp = a.event.date.localeCompare(b.event.date);
+        return dateCmp !== 0
+            ? dateCmp
+            : a.event.title.localeCompare(b.event.title);
+    });
+    return cards;
+}
 
 type Column = {
     key: string;
@@ -117,33 +153,7 @@ export class KanbanView extends ItemView {
 
     /** All cards on the board, before filters. */
     private collectCards(): Card[] {
-        const cards: Card[] = [];
-        for (const source of this.plugin.cache.getAllEvents()) {
-            if (!source.editable) {
-                continue;
-            }
-            for (const { id, event } of source.events) {
-                if (event.type !== "single") {
-                    continue;
-                }
-                if (event.status === undefined && !isTask(event)) {
-                    continue;
-                }
-                cards.push({
-                    id,
-                    event,
-                    calendarId: source.id,
-                    sourceColor: source.color,
-                });
-            }
-        }
-        cards.sort((a, b) => {
-            const dateCmp = a.event.date.localeCompare(b.event.date);
-            return dateCmp !== 0
-                ? dateCmp
-                : a.event.title.localeCompare(b.event.title);
-        });
-        return cards;
+        return collectTaskCards(this.plugin);
     }
 
     private applyFilters(cards: Card[]): Card[] {

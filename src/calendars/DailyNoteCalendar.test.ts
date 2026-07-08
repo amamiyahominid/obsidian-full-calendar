@@ -1,9 +1,11 @@
 import {
+    addToHeading,
     getInlineAttributes,
     getInlineEventFromLine,
     getTodoRegionListItems,
 } from "./DailyNoteCalendar";
-import { CachedMetadata, ListItemCache } from "obsidian";
+import { CachedMetadata, HeadingCache, ListItemCache } from "obsidian";
+import { OFCEvent } from "../types";
 
 it.each([
     ["one variable [hello:: world]", { hello: "world" }],
@@ -128,5 +130,69 @@ describe("getTodoRegionListItems", () => {
 
     it("returns nothing for a file with no list items", () => {
         expect(getTodoRegionListItems({} as CachedMetadata)).toEqual([]);
+    });
+});
+
+describe("addToHeading", () => {
+    const session = {
+        title: "[[APIリファクタ]]",
+        type: "single",
+        date: "2026-07-08",
+        endDate: null,
+        allDay: false,
+        startTime: "14:00",
+        endTime: "15:00",
+    } as OFCEvent;
+
+    const heading = (line: number): HeadingCache =>
+        ({
+            heading: "作業ログ",
+            level: 2,
+            position: {
+                start: { line, col: 0, offset: 0 },
+                end: { line, col: 7, offset: 7 },
+            },
+        } as HeadingCache);
+
+    it("appends at the end of the heading's section, before the next heading", () => {
+        const page = [
+            "## 作業ログ",
+            "- [[a]] [startTime:: 09:00]  [endTime:: 10:00]",
+            "",
+            "## メモ",
+            "- foo",
+        ].join("\n");
+        const { page: result, lineNumber } = addToHeading(page, {
+            heading: heading(0),
+            item: session,
+            headingText: "作業ログ",
+        });
+        expect(lineNumber).toBe(2);
+        const lines = result.split("\n");
+        expect(lines[2]).toContain("[[APIリファクタ]]");
+        expect(lines[4]).toBe("## メモ");
+    });
+
+    it("appends at end of file when the section is last", () => {
+        const page = ["## 作業ログ", "- first [startTime:: 09:00]"].join("\n");
+        const { page: result, lineNumber } = addToHeading(page, {
+            heading: heading(0),
+            item: session,
+            headingText: "作業ログ",
+        });
+        expect(lineNumber).toBe(2);
+        expect(result.split("\n")[2]).toContain("[[APIリファクタ]]");
+    });
+
+    it("creates the heading at the end of the note when missing", () => {
+        const page = ["- [ ] todo", "", "---", "", "- memo"].join("\n");
+        const { page: result } = addToHeading(page, {
+            heading: undefined,
+            item: session,
+            headingText: "作業ログ",
+        });
+        const lines = result.split("\n");
+        expect(lines[lines.length - 2]).toBe("## 作業ログ");
+        expect(lines[lines.length - 1]).toContain("[[APIリファクタ]]");
     });
 });
