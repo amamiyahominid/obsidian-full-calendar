@@ -609,12 +609,18 @@ export default class EventCache {
                 newEventsMapped
             );
 
-            // If no events have changed from what's in the cache, then there's no need to update the event store.
+            // If no events have changed from what's in the cache, then
+            // there's no need to update the event store FOR THIS CALENDAR —
+            // but keep going: daily notes host TWO calendars (TODOs and the
+            // work log), and bailing out of the whole function here used to
+            // swallow the updateViews() for a calendar that DID change,
+            // leaving views holding stale event IDs ("Event ID N not present
+            // in event store" on the next drag).
             if (!eventsHaveChanged) {
                 console.debug(
                     "events have not changed, do not update store or view."
                 );
-                return;
+                continue;
             }
             console.debug(
                 "events have changed, updating store and views...",
