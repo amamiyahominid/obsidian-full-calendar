@@ -247,10 +247,11 @@ export function renderCalendar(
                     return;
                 }
             }
-            // Hide unchecked TODOs from all but the newest daily note that
-            // has any: the template's rollover copies them forward, so only
-            // the latest note's list is live. Checked TODOs stay visible as
-            // history on the day they were completed.
+            // Hide unchecked TODOs from PAST days: the plugin's rollover
+            // moves them into today's note, so anything unchecked in a past
+            // note is either mid-migration or a leftover copy from the old
+            // copy-forward template. Today's and deferred (future) TODOs
+            // show; checked TODOs stay visible as history on their day.
             if (
                 isTodoSource &&
                 event.start &&
@@ -259,14 +260,7 @@ export function renderCalendar(
                 event.source?.id &&
                 isTodoSource(event.source.id)
             ) {
-                const sourceId = event.source.id;
-                const latestDay = cal
-                    .getEvents()
-                    .filter((e) => e.source?.id === sourceId && e.start)
-                    .map((e) => localDayString(e.start!))
-                    .sort()
-                    .pop();
-                if (latestDay && localDayString(event.start) < latestDay) {
+                if (localDayString(event.start) < localDayString(new Date())) {
                     el.style.display = "none";
                     return;
                 }

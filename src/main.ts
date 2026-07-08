@@ -1,4 +1,5 @@
 import { MarkdownView, Notice, Plugin, TFile, TFolder } from "obsidian";
+import { DateTime } from "luxon";
 import {
     CalendarView,
     FULL_CALENDAR_SIDEBAR_VIEW_TYPE,
@@ -14,6 +15,7 @@ import {
 } from "./ui/settings";
 import { PLUGIN_SLUG } from "./types";
 import EventCache from "./core/EventCache";
+import { rollTodosForward } from "./core/todoRollover";
 import ReminderService from "./core/ReminderService";
 import { ObsidianIO } from "./ObsidianAdapter";
 import {
@@ -70,6 +72,29 @@ export default class FullCalendarPlugin extends Plugin {
     renderCalendar = renderCalendar;
     processFrontmatter = toEventInput;
 
+    // Last date rollTodos() completed for, so the interval no-ops within a
+    // day. Cleared by the manual command to force a re-run.
+    private lastRollDate = "";
+
+    async rollTodos() {
+        const today = DateTime.now().toISODate();
+        if (this.lastRollDate === today) {
+            return;
+        }
+        try {
+            await this.cache.populate();
+            const moved = await rollTodosForward(this);
+            this.lastRollDate = today;
+            if (moved > 0) {
+                new Notice(
+                    `Full Calendar: rolled ${moved} unfinished TODO(s) forward to today.`
+                );
+            }
+        } catch (e) {
+            console.error("Full Calendar: TODO rollover failed.", e);
+        }
+    }
+
     async activateView() {
         const leaves = this.app.workspace
             .getLeavesOfType(FULL_CALENDAR_VIEW_TYPE)
@@ -115,6 +140,15 @@ export default class FullCalendarPlugin extends Plugin {
         }
 
         this.cache.reset(this.settings.calendarSources);
+
+        // The plugin owns TODO rollover (the daily template used to COPY
+        // unchecked lines forward, which duplicated them whenever the plugin
+        // wrote to a future note). Runs once the vault is indexed, and again
+        // whenever the date flips while Obsidian stays open.
+        this.app.workspace.onLayoutReady(() => this.rollTodos());
+        this.registerInterval(
+            window.setInterval(() => this.rollTodos(), 15 * 60 * 1000)
+        );
 
         this.registerEvent(
             this.app.metadataCache.on("changed", (file) => {
@@ -228,6 +262,15 @@ export default class FullCalendarPlugin extends Plugin {
             name: "Revalidate remote calendars",
             callback: () => {
                 this.cache.revalidateRemoteCalendars(true);
+            },
+        });
+
+        this.addCommand({
+            id: "full-calendar-roll-todos",
+            name: "Roll unfinished TODOs forward to today",
+            callback: async () => {
+                this.lastRollDate = "";
+                await this.rollTodos();
             },
         });
 
