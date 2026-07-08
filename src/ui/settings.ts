@@ -50,6 +50,9 @@ export interface FullCalendarSettings {
         hideDone: boolean;
         groupBy?: "status" | "sprint";
     };
+    // Width of the task tray beside the calendar, in px. Set by dragging the
+    // tray's resize handle.
+    trayWidth: number;
 }
 
 export const DEFAULT_SETTINGS: FullCalendarSettings = {
@@ -72,6 +75,7 @@ export const DEFAULT_SETTINGS: FullCalendarSettings = {
         hideDone: false,
         groupBy: "status",
     },
+    trayWidth: 220,
 };
 
 const WEEKDAYS = [

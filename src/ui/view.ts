@@ -88,6 +88,39 @@ export class CalendarView extends ItemView {
         return this.inSidebar ? "Full Calendar" : "Calendar";
     }
 
+    /**
+     * A draggable divider that resizes the task tray. The width persists to
+     * settings (light save — no cache reset) so it survives restarts.
+     */
+    private setupTrayResizer(layoutEl: HTMLElement, trayEl: HTMLElement) {
+        const resizerEl = layoutEl.createDiv({ cls: "ofc-tray-resizer" });
+        this.registerDomEvent(resizerEl, "mousedown", (e: MouseEvent) => {
+            e.preventDefault();
+            resizerEl.addClass("is-dragging");
+            const startX = e.clientX;
+            const startWidth = trayEl.getBoundingClientRect().width;
+            const onMove = (ev: MouseEvent) => {
+                const width = Math.max(
+                    140,
+                    Math.min(480, startWidth + ev.clientX - startX)
+                );
+                trayEl.style.width = `${width}px`;
+                this.fullCalendarView?.updateSize();
+            };
+            const onUp = async () => {
+                document.removeEventListener("mousemove", onMove);
+                document.removeEventListener("mouseup", onUp);
+                resizerEl.removeClass("is-dragging");
+                this.plugin.settings.trayWidth = Math.round(
+                    trayEl.getBoundingClientRect().width
+                );
+                await this.plugin.saveTrayWidth();
+            };
+            document.addEventListener("mousemove", onMove);
+            document.addEventListener("mouseup", onUp);
+        });
+    }
+
     translateSources() {
         return this.plugin.cache.getAllEvents().map(
             ({ events, editable, color, id }): EventSourceInput => ({
@@ -147,6 +180,10 @@ export class CalendarView extends ItemView {
             !this.inSidebar && !Platform.isMobile
                 ? layoutEl.createDiv({ cls: "ofc-task-tray" })
                 : null;
+        if (trayEl) {
+            trayEl.style.width = `${this.plugin.settings.trayWidth}px`;
+            this.setupTrayResizer(layoutEl, trayEl);
+        }
         let calendarEl = layoutEl.createDiv({ cls: "ofc-calendar-main" });
 
         const sources: EventSourceInput[] = this.translateSources();

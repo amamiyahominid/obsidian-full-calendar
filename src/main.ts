@@ -320,6 +320,13 @@ export default class FullCalendarPlugin extends Plugin {
     }
 
     /**
+     * Persist the dragged tray width. Pure layout state — no cache reset.
+     */
+    async saveTrayWidth() {
+        await this.saveData(this.settings);
+    }
+
+    /**
      * Bring existing source colors onto the current palette (legacy palette
      * entries are remapped; custom colors are left alone). Mutates settings in
      * place and returns whether anything changed.

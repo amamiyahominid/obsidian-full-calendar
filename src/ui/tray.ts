@@ -5,6 +5,7 @@ import type FullCalendarPlugin from "../main";
 import { collectTaskCards, Card } from "./kanban";
 import { sprintBucket, weekOf } from "./sprint";
 import { openFileForEvent } from "./actions";
+import { contrastTextColor, STATUS_COLORS } from "./colors";
 import {
     actualMinutesByLinktext,
     findRunningSessions,
@@ -111,6 +112,19 @@ export function renderTaskTray(
                 cardEl.addClass("ofc-tray-card-running");
             }
             cardEl.dataset.linktext = linktext;
+
+            // Match the calendar's event rendering (see toEventInput): fill
+            // by workflow status, frame in the source calendar's color.
+            const fill =
+                (card.event.status && STATUS_COLORS[card.event.status]) ||
+                card.sourceColor ||
+                null;
+            cardEl.style.borderColor =
+                card.sourceColor || "var(--interactive-accent)";
+            if (fill) {
+                cardEl.style.backgroundColor = fill;
+                cardEl.style.color = contrastTextColor(fill);
+            }
 
             const bodyEl = cardEl.createDiv({ cls: "ofc-tray-card-body" });
             bodyEl.createDiv({

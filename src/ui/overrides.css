@@ -325,11 +325,27 @@
 }
 
 .ofc-task-tray {
+	/* Width is set inline from settings.trayWidth; this is the fallback. */
 	width: 220px;
 	flex-shrink: 0;
 	overflow-y: auto;
 	padding-right: var(--size-4-2);
 	border-right: 1px solid var(--background-modifier-border);
+}
+
+/* Draggable divider between the tray and the calendar. */
+.ofc-tray-resizer {
+	width: 6px;
+	/* Pull into the flex gap so the gutter stays visually tight. */
+	margin: 0 -4px;
+	flex-shrink: 0;
+	cursor: col-resize;
+	border-radius: 3px;
+}
+
+.ofc-tray-resizer:hover,
+.ofc-tray-resizer.is-dragging {
+	background-color: var(--interactive-accent);
 }
 
 .ofc-tray-header {
@@ -344,7 +360,10 @@
 	margin-bottom: var(--size-2-3);
 	border-radius: var(--radius-s);
 	background-color: var(--background-secondary);
-	border-left: 3px solid var(--interactive-accent);
+	/* Colors come inline from the card's calendar source + status, mirroring
+	   how the calendar paints events; these are just fallbacks. */
+	border: 1px solid var(--interactive-accent);
+	border-left-width: 3px;
 	cursor: grab;
 }
 
@@ -358,7 +377,8 @@
 
 .ofc-tray-card-meta {
 	font-size: var(--font-ui-smaller);
-	color: var(--text-muted);
+	color: inherit;
+	opacity: 0.8;
 	margin-top: var(--size-2-1);
 }
 
@@ -386,12 +406,13 @@
 	box-shadow: none;
 	border: none;
 	padding: var(--size-2-1);
-	color: var(--text-muted);
+	color: inherit;
+	opacity: 0.7;
 	cursor: pointer;
 }
 
 .ofc-tray-card-btn:hover {
-	color: var(--text-normal);
+	opacity: 1;
 }
 
 .ofc-tray-card-btn .svg-icon {
@@ -399,12 +420,15 @@
 	height: 14px;
 }
 
+/* The green edge marks the running task; !important beats the inline
+   source-color border the card gets from JS. */
 .ofc-tray-card-running {
-	border-left-color: var(--color-green);
+	border-left-color: var(--color-green) !important;
 }
 
 .ofc-tray-card-running .ofc-tray-card-meta {
-	color: var(--color-green);
+	font-weight: 600;
+	opacity: 1;
 }
 
 .ofc-tray-warning {
