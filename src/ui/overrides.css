@@ -464,44 +464,32 @@
 	cursor: pointer;
 }
 
-/* ---- Mobile tray: horizontal card strip above the calendar ---- */
+/* ---- Mobile tray: on-demand vertical task list ---- */
 
 .ofc-calendar-layout-mobile {
 	flex-direction: column;
 }
 
-.ofc-task-tray-mobile {
+.ofc-task-tray-mobile-list {
 	width: 100%;
-	display: flex;
-	flex-direction: row;
-	align-items: stretch;
-	gap: var(--size-2-3);
-	overflow-x: auto;
-	overflow-y: hidden;
-	flex-shrink: 0;
-	padding: var(--size-2-2) 0 var(--size-2-3);
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
 	border-right: none;
-	border-bottom: 1px solid var(--background-modifier-border);
+	padding: var(--size-2-2) var(--size-2-2) var(--size-4-4);
 	-webkit-overflow-scrolling: touch;
 }
 
-/* The week label costs a row of vertical space on a phone — drop it. */
-.ofc-task-tray-mobile .ofc-tray-header {
+.ofc-task-tray-mobile-list.is-hidden,
+.ofc-calendar-main.is-hidden {
 	display: none;
 }
 
-.ofc-task-tray-mobile .ofc-tray-card {
-	min-width: 200px;
-	max-width: 240px;
-	flex-shrink: 0;
-	margin-bottom: 0;
+/* Done tasks stay listed (glanceable retro, undo-able mis-taps) but recede. */
+.ofc-tray-card-done {
+	opacity: 0.65;
 }
 
-.ofc-task-tray-mobile .ofc-tray-warning {
-	flex-shrink: 0;
-}
-
-.ofc-task-tray-mobile .ofc-tray-empty {
-	align-self: center;
-	white-space: nowrap;
+.ofc-tray-card-done .ofc-tray-card-title {
+	text-decoration: line-through;
 }

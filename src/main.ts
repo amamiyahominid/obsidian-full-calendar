@@ -16,7 +16,6 @@ import { PLUGIN_SLUG } from "./types";
 import EventCache from "./core/EventCache";
 import ReminderService from "./core/ReminderService";
 import { ObsidianIO } from "./ObsidianAdapter";
-import { launchCreateModal } from "./ui/event_modal";
 import {
     configureStatuses,
     migrateSourceColor,
@@ -210,14 +209,6 @@ export default class FullCalendarPlugin extends Plugin {
         );
 
         this.addSettingTab(new FullCalendarSettingTab(this.app, this));
-
-        this.addCommand({
-            id: "full-calendar-new-event",
-            name: "New Event",
-            callback: () => {
-                launchCreateModal(this, {});
-            },
-        });
 
         this.addCommand({
             id: "full-calendar-reset",

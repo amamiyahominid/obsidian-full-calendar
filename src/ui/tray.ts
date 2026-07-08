@@ -36,32 +36,40 @@ const cardDone = (c: Card): boolean =>
         ? isDoneStatus(c.event.status)
         : c.event.completed === true;
 
-/** This sprint's unfinished tasks, carry-overs included. */
+/**
+ * This sprint's tasks, carry-overs included. Done tasks stay visible — the
+ * tray doubles as an at-a-glance retrospective, and a mis-tapped checkbox
+ * can be unticked — but sink below the unfinished ones. (Done tasks from
+ * PAST weeks still disappear: sprintBucket hides them.)
+ */
 export function trayCards(plugin: FullCalendarPlugin): Card[] {
     const currentWeek = weekOf(0);
-    return collectTaskCards(plugin).filter((c) => {
-        if (cardDone(c)) {
-            return false;
-        }
-        const bucket = sprintBucket(c.event.sprint, false, currentWeek);
+    const cards = collectTaskCards(plugin).filter((c) => {
+        const bucket = sprintBucket(c.event.sprint, cardDone(c), currentWeek);
         return bucket === currentWeek || bucket === "carryover";
     });
+    return cards.sort((a, b) => Number(cardDone(a)) - Number(cardDone(b)));
 }
 
 export function renderTaskTray(
     plugin: FullCalendarPlugin,
-    el: HTMLElement
+    el: HTMLElement,
+    opts: { draggable?: boolean } = {}
 ): TaskTray {
     // FullCalendar's external-drag integration: any .ofc-tray-card inside the
     // tray can be dropped on the calendar. The event title carries the task
-    // wikilink so the drop handler can write the session line.
-    const draggable = new Draggable(el, {
-        itemSelector: ".ofc-tray-card",
-        eventData: (cardEl) => ({
-            title: `[[${(cardEl as HTMLElement).dataset.linktext}]]`,
-            duration: "01:00",
-        }),
-    });
+    // wikilink so the drop handler can write the session line. Mobile opts
+    // out — sessions are started with the ▶ button there.
+    const draggable =
+        opts.draggable === false
+            ? null
+            : new Draggable(el, {
+                  itemSelector: ".ofc-tray-card",
+                  eventData: (cardEl) => ({
+                      title: `[[${(cardEl as HTMLElement).dataset.linktext}]]`,
+                      duration: "01:00",
+                  }),
+              });
 
     const refresh = () => {
         el.empty();
@@ -109,9 +117,13 @@ export function renderTaskTray(
                 continue;
             }
             const session = runningByLink.get(linktext);
+            const done = cardDone(card);
             const cardEl = el.createDiv({ cls: "ofc-tray-card" });
             if (session) {
                 cardEl.addClass("ofc-tray-card-running");
+            }
+            if (done) {
+                cardEl.addClass("ofc-tray-card-done");
             }
             cardEl.dataset.linktext = linktext;
 
@@ -128,18 +140,17 @@ export function renderTaskTray(
                 cardEl.style.color = contrastTextColor(fill);
             }
 
-            // Finish the task right from the tray. It only lists unfinished
-            // tasks, so the box is always unchecked; ticking it marks the
-            // task done and the card leaves the tray on the cache update.
+            // Finish (or un-finish a mis-tap) right from the tray.
             const check = cardEl.createEl("input", {
                 type: "checkbox",
                 cls: "ofc-tray-card-check",
             });
-            check.setAttr("aria-label", "Mark done");
+            check.checked = done;
+            check.setAttr("aria-label", done ? "Reopen" : "Mark done");
             check.onclick = async (ev) => {
                 ev.stopPropagation();
                 await plugin.cache.processEvent(card.id, (e) =>
-                    toggleTask(e, true)
+                    toggleTask(e, !done)
                 );
             };
 
@@ -210,5 +221,5 @@ export function renderTaskTray(
         }
     };
     refresh();
-    return { refresh, destroy: () => draggable.destroy() };
+    return { refresh, destroy: () => draggable?.destroy() };
 }

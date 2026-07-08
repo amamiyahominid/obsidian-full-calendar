@@ -72,6 +72,11 @@ export class CalendarView extends ItemView {
     fullCalendarView: Calendar | null = null;
     callback: UpdateViewCallback | null = null;
     taskTray: TaskTray | null = null;
+    // Mobile-only: the header action toggles between the calendar and the
+    // task list; these track the current elements across onOpen() re-runs.
+    mobileTrayEl: HTMLElement | null = null;
+    mobileCalendarEl: HTMLElement | null = null;
+    trayActionAdded = false;
     // onOpen() re-runs on the same view instance (e.g. activateView() calls it
     // on existing leaves), but the header action must only be added once.
     kanbanActionAdded = false;
@@ -247,8 +252,9 @@ export class CalendarView extends ItemView {
         }
 
         // Task tray next to the calendar (main tab only — the sidebar is too
-        // narrow). Desktop: a resizable side column. Mobile: a horizontal
-        // card strip above the calendar, since phones have no width to spare.
+        // narrow). Desktop: a resizable side column. Mobile: an on-demand
+        // full-width vertical list toggled from the view header — sessions
+        // start with ▶ there, so it doesn't need to be visible all the time.
         const layoutEl = container.createDiv({ cls: "ofc-calendar-layout" });
         if (Platform.isMobile) {
             layoutEl.addClass("ofc-calendar-layout-mobile");
@@ -258,13 +264,32 @@ export class CalendarView extends ItemView {
             : null;
         if (trayEl) {
             if (Platform.isMobile) {
-                trayEl.addClass("ofc-task-tray-mobile");
+                trayEl.addClass("ofc-task-tray-mobile-list", "is-hidden");
             } else {
                 trayEl.style.width = `${this.plugin.settings.trayWidth}px`;
                 this.setupTrayResizer(layoutEl, trayEl);
             }
         }
         let calendarEl = layoutEl.createDiv({ cls: "ofc-calendar-main" });
+        this.mobileTrayEl = Platform.isMobile ? trayEl : null;
+        this.mobileCalendarEl = Platform.isMobile ? calendarEl : null;
+
+        if (!this.trayActionAdded && trayEl && Platform.isMobile) {
+            this.trayActionAdded = true;
+            this.addAction("list-checks", "This week's tasks", () => {
+                const tray = this.mobileTrayEl;
+                const cal = this.mobileCalendarEl;
+                if (!tray || !cal) {
+                    return;
+                }
+                const show = tray.hasClass("is-hidden");
+                tray.toggleClass("is-hidden", !show);
+                cal.toggleClass("is-hidden", show);
+                if (!show) {
+                    this.fullCalendarView?.updateSize();
+                }
+            });
+        }
 
         const sources: EventSourceInput[] = this.translateSources();
 
@@ -439,7 +464,11 @@ export class CalendarView extends ItemView {
         window.fc = this.fullCalendarView;
 
         this.taskTray?.destroy();
-        this.taskTray = trayEl ? renderTaskTray(this.plugin, trayEl) : null;
+        this.taskTray = trayEl
+            ? renderTaskTray(this.plugin, trayEl, {
+                  draggable: !Platform.isMobile,
+              })
+            : null;
 
         this.registerDomEvent(this.containerEl, "mouseenter", () => {
             this.plugin.cache.revalidateRemoteCalendars();
