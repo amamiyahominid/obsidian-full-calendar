@@ -287,11 +287,33 @@ export const addToHeading = (
             lineNumber--;
         }
         lines.splice(lineNumber, 0, listItem);
+        // Keep one visible blank line under the section: between the last
+        // entry and the next heading, or at the end of the note. (A single
+        // trailing "" after join() is just the final newline, not a blank
+        // line, hence the doubled push at EOF.)
+        const after = lineNumber + 1;
+        if (after === lines.length) {
+            lines.push("", "");
+        } else if (lines[after].trim() !== "") {
+            lines.splice(after, 0, "");
+        } else if (after === lines.length - 1 && lines[after] === "") {
+            lines.push("");
+        }
         return { page: lines.join("\n"), lineNumber };
     } else {
+        // Separate the new section from the note body with a blank line
+        // above the heading and leave a blank line below the entry.
+        while (lines.length > 0 && lines[lines.length - 1].trim() === "") {
+            lines.pop();
+        }
+        if (lines.length > 0) {
+            lines.push("");
+        }
         lines.push(`## ${headingText}`);
+        const lineNumber = lines.length;
         lines.push(listItem);
-        return { page: lines.join("\n"), lineNumber: lines.length - 1 };
+        lines.push("", "");
+        return { page: lines.join("\n"), lineNumber };
     }
 };
 

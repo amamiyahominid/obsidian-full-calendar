@@ -173,7 +173,7 @@ describe("addToHeading", () => {
         expect(lines[4]).toBe("## メモ");
     });
 
-    it("appends at end of file when the section is last", () => {
+    it("appends at end of file, keeping a blank line under the section", () => {
         const page = ["## 作業ログ", "- first [startTime:: 09:00]"].join("\n");
         const { page: result, lineNumber } = addToHeading(page, {
             heading: heading(0),
@@ -182,17 +182,22 @@ describe("addToHeading", () => {
         });
         expect(lineNumber).toBe(2);
         expect(result.split("\n")[2]).toContain("[[APIリファクタ]]");
+        expect(result.endsWith("\n\n")).toBe(true);
     });
 
     it("creates the heading at the end of the note when missing", () => {
         const page = ["- [ ] todo", "", "---", "", "- memo"].join("\n");
-        const { page: result } = addToHeading(page, {
+        const { page: result, lineNumber } = addToHeading(page, {
             heading: undefined,
             item: session,
             headingText: "作業ログ",
         });
         const lines = result.split("\n");
-        expect(lines[lines.length - 2]).toBe("## 作業ログ");
-        expect(lines[lines.length - 1]).toContain("[[APIリファクタ]]");
+        // blank line above the heading, entry, then a visible blank line
+        expect(lines[lines.length - 5]).toBe("");
+        expect(lines[lines.length - 4]).toBe("## 作業ログ");
+        expect(lines[lines.length - 3]).toContain("[[APIリファクタ]]");
+        expect(lineNumber).toBe(lines.length - 3);
+        expect(result.endsWith("\n\n")).toBe(true);
     });
 });
