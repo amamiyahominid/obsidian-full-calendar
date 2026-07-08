@@ -740,11 +740,13 @@ export class KanbanView extends ItemView {
             return;
         }
         if (!this.plugin.cache.initialized) {
-            // Same startup guard as the calendar view: wait for the vault
-            // index before the first populate (see CalendarView.onOpen).
-            await new Promise<void>((resolve) =>
-                this.app.workspace.onLayoutReady(resolve)
-            );
+            // Same startup guard as the calendar view: only populate once
+            // the vault index is ready — and never AWAIT layout-ready inside
+            // onOpen(), which deadlocks mobile's workspace load.
+            if (!this.app.workspace.layoutReady) {
+                this.app.workspace.onLayoutReady(() => this.onOpen());
+                return;
+            }
             await this.plugin.cache.populate();
         }
 

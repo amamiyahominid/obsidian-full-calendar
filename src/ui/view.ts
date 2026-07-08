@@ -214,11 +214,14 @@ export class CalendarView extends ItemView {
         if (!this.plugin.cache.initialized) {
             // Restored views open before the vault index is complete on
             // startup; populating then throws "Cannot get folder" for sources
-            // whose folders haven't been indexed yet. onLayoutReady resolves
-            // immediately if startup already finished.
-            await new Promise<void>((resolve) =>
-                this.app.workspace.onLayoutReady(resolve)
-            );
+            // whose folders haven't been indexed yet. Don't AWAIT layout-
+            // ready here — mobile's workspace load awaits each view's
+            // onOpen(), so blocking on it deadlocks the "reloading
+            // workspace" screen. Bail out and re-open once ready instead.
+            if (!this.app.workspace.layoutReady) {
+                this.app.workspace.onLayoutReady(() => this.onOpen());
+                return;
+            }
             await this.plugin.cache.populate();
         }
 
