@@ -653,7 +653,9 @@ export default class EventCache {
             eventsToAdd.push(...newEventsWithIds);
         }
 
-        this.updateViews(idsToRemove, eventsToAdd);
+        if (idsToRemove.length > 0 || eventsToAdd.length > 0) {
+            this.updateViews(idsToRemove, eventsToAdd);
+        }
     }
 
     /**
