@@ -252,10 +252,17 @@ export const AddCalendarSource = ({
         }
     };
 
+    // Work-log session blocks are painted with their linked task's colors
+    // (status fill + project frame), so picking a color for the work-log
+    // calendar itself would be misleading — it only ever shows on session
+    // lines without a resolvable task link. TODO calendars DO use their
+    // color (TODO blocks have no status), so they keep the picker.
+    const isWorklog = source.type === "dailynote" && !source.todos;
+
     return (
         <div className="vertical-tab-content">
             <form onSubmit={handleSubmit}>
-                {!isCalDAV && (
+                {!isCalDAV && !isWorklog && (
                     // CalDAV can import multiple calendars. Instead of picking
                     // a single color to be used for all calendars, default to the
                     // colors reported from the server. Users can change that later
