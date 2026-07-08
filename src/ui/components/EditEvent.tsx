@@ -2,6 +2,12 @@ import { DateTime } from "luxon";
 import * as React from "react";
 import { useEffect, useRef, useState } from "react";
 import { CalendarInfo, OFCEvent } from "../../types";
+import {
+    doneStatus,
+    isDoneStatus,
+    statusAfterUncheck,
+    workflowStages,
+} from "../colors";
 import { weekOf } from "../sprint";
 import {
     buildRRule,
@@ -295,7 +301,9 @@ export const EditEvent = ({
             : !(initialEvent && initialEvent.title)
     );
 
-    const [status, setStatus] = useState<string>(initialStatus || "Backlog");
+    const [status, setStatus] = useState<string>(
+        initialStatus || workflowStages()[0]
+    );
 
     // "" means no sprint. The dropdown offers the planning window (this week
     // through +3); an out-of-window value already on the event is kept as an
@@ -593,7 +601,11 @@ export const EditEvent = ({
                                 setComplete(
                                     isChecked ? DateTime.now().toISO() : false
                                 );
-                                setStatus(isChecked ? "Done" : "Review");
+                                setStatus(
+                                    isChecked
+                                        ? doneStatus()
+                                        : statusAfterUncheck()
+                                );
                             }}
                             type="checkbox"
                         />
@@ -606,17 +618,25 @@ export const EditEvent = ({
                                     const newStatus = e.target.value;
                                     setStatus(newStatus);
                                     setComplete(
-                                        newStatus === "Done"
+                                        isDoneStatus(newStatus)
                                             ? DateTime.now().toISO()
                                             : false
                                     );
                                 }}
                             >
-                                <option value="Backlog">Backlog</option>
-                                <option value="Ready">Ready</option>
-                                <option value="In Progress">In Progress</option>
-                                <option value="Review">Review</option>
-                                <option value="Done">Done</option>
+                                {workflowStages().map((stage) => (
+                                    <option key={stage} value={stage}>
+                                        {stage}
+                                    </option>
+                                ))}
+                                {initialStatus &&
+                                    !workflowStages().includes(
+                                        initialStatus
+                                    ) && (
+                                        <option value={initialStatus}>
+                                            {initialStatus}
+                                        </option>
+                                    )}
                             </select>
                         </p>
                         <p>

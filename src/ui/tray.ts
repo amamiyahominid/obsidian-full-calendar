@@ -5,7 +5,7 @@ import type FullCalendarPlugin from "../main";
 import { collectTaskCards, Card } from "./kanban";
 import { sprintBucket, weekOf } from "./sprint";
 import { openFileForEvent } from "./actions";
-import { contrastTextColor, STATUS_COLORS } from "./colors";
+import { contrastTextColor, getStatusColor, isDoneStatus } from "./colors";
 import {
     actualMinutesByLinktext,
     findRunningSessions,
@@ -31,7 +31,7 @@ export type TaskTray = { refresh: () => void; destroy: () => void };
 // legacy notes that never picked a workflow stage.
 const cardDone = (c: Card): boolean =>
     c.event.status !== undefined
-        ? c.event.status === "Done"
+        ? isDoneStatus(c.event.status)
         : c.event.completed === true;
 
 /** This sprint's unfinished tasks, carry-overs included. */
@@ -116,7 +116,7 @@ export function renderTaskTray(
             // Match the calendar's event rendering (see toEventInput): fill
             // by workflow status, frame in the source calendar's color.
             const fill =
-                (card.event.status && STATUS_COLORS[card.event.status]) ||
+                (card.event.status && getStatusColor(card.event.status)) ||
                 card.sourceColor ||
                 null;
             cardEl.style.borderColor =

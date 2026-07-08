@@ -23,7 +23,7 @@ import {
 } from "src/core/worklog";
 import { renderTaskTray, TaskTray } from "./tray";
 import { collectTaskCards, FULL_CALENDAR_KANBAN_VIEW_TYPE } from "./kanban";
-import { contrastTextColor, STATUS_COLORS } from "./colors";
+import { contrastTextColor, getStatusColor } from "./colors";
 
 export const FULL_CALENDAR_VIEW_TYPE = "full-calendar-view";
 export const FULL_CALENDAR_SIDEBAR_VIEW_TYPE = "full-calendar-sidebar-view";
@@ -168,7 +168,7 @@ export class CalendarView extends ItemView {
             return input;
         }
         const fill =
-            (look.status && STATUS_COLORS[look.status]) ||
+            (look.status && getStatusColor(look.status)) ||
             look.sourceColor ||
             null;
         if (fill) {

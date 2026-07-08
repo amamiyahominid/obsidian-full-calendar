@@ -9,7 +9,13 @@ import {
     TFolder,
 } from "obsidian";
 import { makeDefaultPartialCalendarSource, CalendarInfo } from "../types";
-import { nextSourceColor } from "./colors";
+import {
+    configureStatuses,
+    DEFAULT_STATUSES,
+    DEFAULT_UNCHECK_STATUS,
+    nextSourceColor,
+    StatusDef,
+} from "./colors";
 import { CalendarSettings } from "./components/CalendarSetting";
 import { AddCalendarSource } from "./components/AddCalendarSource";
 import * as ReactDOM from "react-dom";
@@ -53,6 +59,13 @@ export interface FullCalendarSettings {
     // Width of the task tray beside the calendar, in px. Set by dragging the
     // tray's resize handle.
     trayWidth: number;
+    // Workflow stages in kanban column order, with their fill colors. The
+    // LAST stage counts as "done" (checked on the calendar). Renaming a
+    // stage does NOT rewrite existing task notes — unknown statuses surface
+    // as extra kanban columns rather than disappearing.
+    statuses: StatusDef[];
+    // The stage a task returns to when its checkbox is unticked.
+    uncheckStatus: string;
 }
 
 export const DEFAULT_SETTINGS: FullCalendarSettings = {
@@ -76,6 +89,8 @@ export const DEFAULT_SETTINGS: FullCalendarSettings = {
         groupBy: "status",
     },
     trayWidth: 220,
+    statuses: DEFAULT_STATUSES,
+    uncheckStatus: DEFAULT_UNCHECK_STATUS,
 };
 
 const WEEKDAYS = [
@@ -360,6 +375,87 @@ export class FullCalendarSettingTab extends PluginSettingTab {
                     this.plugin.settings.reminderMinutesBefore = parsed;
                     await this.plugin.saveReminderSettings();
                 });
+            });
+
+        containerEl.createEl("h2", { text: "Workflow statuses" });
+        containerEl.createEl("p", {
+            cls: "setting-item-description",
+            text: "Stages in kanban column order. The last stage counts as done. Renaming a stage does not rewrite existing notes — old values show up as extra columns.",
+        });
+        // Persist + apply without the full cache reset: statuses only affect
+        // how things render, so a light save and a view resync suffice.
+        const applyStatuses = async (rerender: boolean) => {
+            await this.plugin.saveData(this.plugin.settings);
+            configureStatuses(
+                this.plugin.settings.statuses,
+                this.plugin.settings.uncheckStatus
+            );
+            this.plugin.cache.resync();
+            if (rerender) {
+                this.display();
+            }
+        };
+        this.plugin.settings.statuses.forEach((status, idx) => {
+            const row = new Setting(containerEl);
+            row.addText((text) => {
+                text.setValue(status.name).onChange(async (val) => {
+                    this.plugin.settings.statuses[idx].name = val;
+                    await applyStatuses(false);
+                });
+            });
+            row.addColorPicker((picker) => {
+                picker.setValue(status.color).onChange(async (val) => {
+                    this.plugin.settings.statuses[idx].color = val;
+                    await applyStatuses(false);
+                });
+            });
+            row.addExtraButton((btn) => {
+                btn.setIcon("arrow-up")
+                    .setTooltip("Move up")
+                    .setDisabled(idx === 0)
+                    .onClick(async () => {
+                        const statuses = this.plugin.settings.statuses;
+                        [statuses[idx - 1], statuses[idx]] = [
+                            statuses[idx],
+                            statuses[idx - 1],
+                        ];
+                        await applyStatuses(true);
+                    });
+            });
+            row.addExtraButton((btn) => {
+                btn.setIcon("trash")
+                    .setTooltip("Remove")
+                    .setDisabled(this.plugin.settings.statuses.length <= 1)
+                    .onClick(async () => {
+                        this.plugin.settings.statuses.splice(idx, 1);
+                        await applyStatuses(true);
+                    });
+            });
+        });
+        new Setting(containerEl).addButton((btn) => {
+            btn.setButtonText("Add status").onClick(async () => {
+                this.plugin.settings.statuses.push({
+                    name: "New status",
+                    color: "#cccccc",
+                });
+                await applyStatuses(true);
+            });
+        });
+        new Setting(containerEl)
+            .setName("Status after unchecking")
+            .setDesc(
+                "The stage a task returns to when its checkbox is unticked on the calendar."
+            )
+            .addDropdown((dropdown) => {
+                for (const s of this.plugin.settings.statuses) {
+                    dropdown.addOption(s.name, s.name);
+                }
+                dropdown
+                    .setValue(this.plugin.settings.uncheckStatus)
+                    .onChange(async (val) => {
+                        this.plugin.settings.uncheckStatus = val;
+                        await applyStatuses(false);
+                    });
             });
 
         containerEl.createEl("h2", { text: "Manage Calendars" });

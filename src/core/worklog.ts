@@ -44,7 +44,7 @@ export async function createSession(
     const calendarId = getWorklogCalendarId(plugin);
     if (!calendarId) {
         new Notice(
-            'No work-log calendar configured. Add a "Daily Note" calendar (e.g. under a 作業ログ heading) in the Full Calendar settings.'
+            'No work-log calendar configured. Add a "Daily Note" calendar in the Full Calendar settings — sessions are written under its heading.'
         );
         return false;
     }
@@ -217,7 +217,7 @@ export async function startSession(
     const calendarId = getWorklogCalendarId(plugin);
     if (!calendarId) {
         new Notice(
-            'No work-log calendar configured. Add a "Daily Note" calendar (e.g. under a 作業ログ heading) in the Full Calendar settings.'
+            'No work-log calendar configured. Add a "Daily Note" calendar in the Full Calendar settings — sessions are written under its heading.'
         );
         return false;
     }

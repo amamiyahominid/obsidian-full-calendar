@@ -9,17 +9,53 @@
  * so their appearance is unchanged.
  */
 
-// Fixed semantic palette for the workflow stages. Dusty pastels kept at a
+export type StatusDef = { name: string; color: string };
+
+// Default workflow stages, in kanban column order. Dusty pastels kept at a
 // uniform tone (high lightness, muted saturation) so the set reads as one
 // cohesive family, ordered as a temperature arc: neutral → cool → warm →
-// resolved. Free-form statuses not in this map fall back to the source color.
-export const STATUS_COLORS: Record<string, string> = {
-    Backlog: "#c9cfd8", // dove gray — dormant
-    Ready: "#a6c4e2", // powder blue — queued
-    "In Progress": "#e6d29a", // wheat — active
-    Review: "#e6b394", // apricot — attention
-    Done: "#aad6b5", // sage — complete
-};
+// resolved. Free-form statuses not in the configured set fall back to the
+// source color.
+export const DEFAULT_STATUSES: StatusDef[] = [
+    { name: "Backlog", color: "#c9cfd8" }, // dove gray — dormant
+    { name: "Ready", color: "#a6c4e2" }, // powder blue — queued
+    { name: "In Progress", color: "#e6d29a" }, // wheat — active
+    { name: "Review", color: "#e6b394" }, // apricot — attention
+    { name: "Done", color: "#aad6b5" }, // sage — complete
+];
+
+export const DEFAULT_UNCHECK_STATUS = "Review";
+
+// Session-scoped status registry, configured from settings at plugin load
+// and whenever settings change. Module state (rather than plumbing the
+// plugin instance through) because pure helpers like interop.ts and
+// tasks/index.ts need these lookups too.
+let statuses: StatusDef[] = DEFAULT_STATUSES;
+let uncheckStatus = DEFAULT_UNCHECK_STATUS;
+
+export function configureStatuses(defs: StatusDef[], uncheck: string): void {
+    const valid = (defs ?? []).filter((d) => d.name.trim() !== "");
+    statuses = valid.length > 0 ? valid : DEFAULT_STATUSES;
+    uncheckStatus = statuses.some((s) => s.name === uncheck)
+        ? uncheck
+        : statuses[0].name;
+}
+
+/** Workflow stage names, in kanban column order. */
+export const workflowStages = (): string[] => statuses.map((s) => s.name);
+
+/** Fill color for a stage; undefined for stages not in the configured set. */
+export const getStatusColor = (name: string): string | undefined =>
+    statuses.find((s) => s.name === name)?.color;
+
+/** The LAST configured stage counts as done (checked on the calendar). */
+export const doneStatus = (): string => statuses[statuses.length - 1].name;
+
+export const isDoneStatus = (s: string | undefined): boolean =>
+    s !== undefined && s === doneStatus();
+
+/** The stage a task returns to when its checkbox is unticked. */
+export const statusAfterUncheck = (): string => uncheckStatus;
 
 // Source border palette — 10 visually distinct colors assigned sequentially as
 // new calendar sources are added. Deterministic and collision-free until all

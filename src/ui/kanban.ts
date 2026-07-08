@@ -3,7 +3,12 @@ import { DateTime } from "luxon";
 import FullCalendarPlugin from "../main";
 import { OFCEvent, PLUGIN_SLUG } from "../types";
 import { UpdateViewCallback } from "../core/EventCache";
-import { contrastTextColor, STATUS_COLORS } from "./colors";
+import {
+    contrastTextColor,
+    getStatusColor,
+    isDoneStatus,
+    workflowStages,
+} from "./colors";
 import { isTask } from "./tasks";
 import { openFileForEvent } from "./actions";
 import { actualMinutesByLinktext, linktextForEvent } from "../core/worklog";
@@ -19,11 +24,6 @@ import {
 } from "./sprint";
 
 export const FULL_CALENDAR_KANBAN_VIEW_TYPE = "full-calendar-kanban-view";
-
-// Canonical column order for the status axis. Unknown statuses found in
-// events are appended after these so free-form stages still get a column
-// instead of vanishing.
-const WORKFLOW_STAGES = Object.keys(STATUS_COLORS);
 
 // How many weeks past the current one get a planning column on the sprint
 // axis. Everything further out only appears if a card is already assigned
@@ -97,12 +97,13 @@ type Column = {
 // The board shows single events that opted into the workflow (status set),
 // plus tasks that haven't picked a stage yet — those surface in Backlog so
 // they can be dragged onto the board without editing frontmatter by hand.
-const cardStatus = (e: Card["event"]): string => e.status ?? "Backlog";
+const cardStatus = (e: Card["event"]): string =>
+    e.status ?? workflowStages()[0];
 
 // Status is the source of truth when present; `completed` only decides for
 // legacy notes that never picked a workflow stage.
 const cardDone = (e: Card["event"]): boolean =>
-    e.status !== undefined ? e.status === "Done" : e.completed === true;
+    e.status !== undefined ? isDoneStatus(e.status) : e.completed === true;
 
 // "local::30_projects/01_foo/tasks" → "01_foo". Falls back to the raw ID for
 // sources that don't follow the project-folder convention.
@@ -168,7 +169,7 @@ export class KanbanView extends ItemView {
             if (project && c.calendarId !== project) {
                 return false;
             }
-            if (hideDone && cardStatus(c.event) === "Done") {
+            if (hideDone && isDoneStatus(cardStatus(c.event))) {
                 return false;
             }
             if (!applySprint) {
@@ -186,8 +187,11 @@ export class KanbanView extends ItemView {
     }
 
     private buildStatusColumns(cards: Card[]): Column[] {
-        const statuses = WORKFLOW_STAGES.filter(
-            (s) => !(this.filters.hideDone && s === "Done")
+        // Canonical column order for the status axis. Unknown statuses found
+        // in events are appended after these so free-form stages still get a
+        // column instead of vanishing.
+        const statuses = workflowStages().filter(
+            (s) => !(this.filters.hideDone && isDoneStatus(s))
         );
         for (const card of cards) {
             const status = cardStatus(card.event);
@@ -198,13 +202,12 @@ export class KanbanView extends ItemView {
         return statuses.map((status) => ({
             key: status,
             label: status,
-            dotColor: STATUS_COLORS[status] ?? null,
+            dotColor: getStatusColor(status) ?? null,
             cards: cards.filter((c) => cardStatus(c.event) === status),
             onDrop: (id: string) => this.moveCard(id, status),
             onAdd: () =>
                 this.launchCreate({
                     status,
-                    completed: status === "Done",
                 }),
         }));
     }
@@ -546,7 +549,7 @@ export class KanbanView extends ItemView {
                 cls: "ofc-kanban-card-status",
                 text: status,
             });
-            const color = STATUS_COLORS[status];
+            const color = getStatusColor(status);
             if (color) {
                 chip.style.backgroundColor = color;
                 chip.style.color = contrastTextColor(color);
@@ -706,7 +709,7 @@ export class KanbanView extends ItemView {
         if (
             !current ||
             current.type !== "single" ||
-            (current.status ?? "Backlog") === status
+            (current.status ?? workflowStages()[0]) === status
         ) {
             return;
         }
@@ -715,12 +718,9 @@ export class KanbanView extends ItemView {
                 if (e.type !== "single") {
                     return e;
                 }
-                const next: OFCEvent = { ...e, status };
-                // Keep the checkbox in lockstep with the workflow stage, the
-                // same way toggleTask() mirrors the two in the calendar view.
-                if (isTask(e)) {
-                    next.completed = status === "Done";
-                }
+                // Status is the source of truth for workflow tasks; drop
+                // any legacy completed key rather than syncing a second copy.
+                const next: OFCEvent = { ...e, status, completed: null };
                 return next;
             });
         } catch (e) {

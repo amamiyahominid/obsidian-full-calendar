@@ -17,7 +17,11 @@ import EventCache from "./core/EventCache";
 import ReminderService from "./core/ReminderService";
 import { ObsidianIO } from "./ObsidianAdapter";
 import { launchCreateModal } from "./ui/event_modal";
-import { nextSourceColor, migrateSourceColor } from "./ui/colors";
+import {
+    configureStatuses,
+    migrateSourceColor,
+    nextSourceColor,
+} from "./ui/colors";
 import FullNoteCalendar from "./calendars/FullNoteCalendar";
 import DailyNoteCalendar from "./calendars/DailyNoteCalendar";
 import ICSCalendar from "./calendars/ICSCalendar";
@@ -291,6 +295,10 @@ export default class FullCalendarPlugin extends Plugin {
             DEFAULT_SETTINGS,
             await this.loadData()
         );
+        // Status lookups (colors, done detection, kanban columns) live in a
+        // module registry so pure helpers can read them without a plugin
+        // handle; keep it in sync with settings.
+        configureStatuses(this.settings.statuses, this.settings.uncheckStatus);
     }
 
     async saveSettings() {

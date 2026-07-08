@@ -1,4 +1,5 @@
 import { OFCEvent } from "src/types";
+import { doneStatus, statusAfterUncheck } from "../colors";
 
 /*
  * Two kinds of checkbox-bearing events, each with ONE source of truth:
@@ -33,7 +34,7 @@ export const toggleTask = (event: OFCEvent, isDone: boolean): OFCEvent => {
         return {
             ...event,
             completed: null,
-            status: isDone ? "Done" : "Review",
+            status: isDone ? doneStatus() : statusAfterUncheck(),
         };
     }
     return { ...event, completed: isDone };
