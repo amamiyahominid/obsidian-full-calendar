@@ -1,9 +1,9 @@
 import "./overrides.css";
 import { ItemView, Menu, Notice, Platform, WorkspaceLeaf } from "obsidian";
-import { Calendar, EventSourceInput } from "@fullcalendar/core";
+import { Calendar, EventInput, EventSourceInput } from "@fullcalendar/core";
 import { renderCalendar } from "./calendar";
 import FullCalendarPlugin from "../main";
-import { FCError, PLUGIN_SLUG } from "../types";
+import { FCError, OFCEvent, PLUGIN_SLUG } from "../types";
 import {
     dateEndpointsToFrontmatter,
     fromEventApi,
@@ -15,12 +15,28 @@ import { launchCreateModal, launchEditModal } from "./event_modal";
 import { isTask, toggleTask, unmakeTask } from "src/ui/tasks";
 import { UpdateViewCallback } from "src/core/EventCache";
 import DailyNoteCalendar from "src/calendars/DailyNoteCalendar";
-import { createSession } from "src/core/worklog";
+import {
+    createSession,
+    firstLinktext,
+    getWorklogCalendarId,
+    linktextForEvent,
+} from "src/core/worklog";
 import { renderTaskTray, TaskTray } from "./tray";
-import { FULL_CALENDAR_KANBAN_VIEW_TYPE } from "./kanban";
+import { collectTaskCards, FULL_CALENDAR_KANBAN_VIEW_TYPE } from "./kanban";
+import { contrastTextColor, STATUS_COLORS } from "./colors";
 
 export const FULL_CALENDAR_VIEW_TYPE = "full-calendar-view";
 export const FULL_CALENDAR_SIDEBAR_VIEW_TYPE = "full-calendar-sidebar-view";
+
+// Workflow tasks (status-bearing notes) stay off the calendar entirely: the
+// tray/kanban own them, and the calendar shows their work sessions instead.
+// Rendering them would duplicate the tray AND make a drag rewrite the task's
+// `date` — the old timeblocking behavior sessions replaced.
+const isWorkflowTask = (event: OFCEvent) =>
+    event.type === "single" && event.status !== undefined;
+
+// What a session block should look like: its linked task's colors.
+type TaskLook = { sourceColor: string | null | undefined; status?: string };
 
 function getCalendarColors(color: string | null | undefined): {
     color: string;
@@ -121,13 +137,67 @@ export class CalendarView extends ItemView {
         });
     }
 
+    /** Task linktext → colors, for painting session blocks like the tray. */
+    private taskLooks(): Map<string, TaskLook> {
+        const looks = new Map<string, TaskLook>();
+        for (const card of collectTaskCards(this.plugin)) {
+            const link = linktextForEvent(this.plugin, card.id);
+            if (link) {
+                looks.set(link, {
+                    sourceColor: card.sourceColor,
+                    status: card.event.status,
+                });
+            }
+        }
+        return looks;
+    }
+
+    /**
+     * Give a work-log session block its linked task's colors — fill by
+     * workflow status, frame in the project calendar's color — matching the
+     * tray card it was dragged from. Sessions with no resolvable task link
+     * keep the work-log calendar's own color.
+     */
+    private decorateSession(
+        input: EventInput,
+        looks: Map<string, TaskLook>
+    ): EventInput {
+        const link = firstLinktext(input.title ?? "");
+        const look = link ? looks.get(link) : undefined;
+        if (!look) {
+            return input;
+        }
+        const fill =
+            (look.status && STATUS_COLORS[look.status]) ||
+            look.sourceColor ||
+            null;
+        if (fill) {
+            input.backgroundColor = fill;
+            input.textColor = contrastTextColor(fill);
+        }
+        if (look.sourceColor) {
+            input.borderColor = look.sourceColor;
+        }
+        return input;
+    }
+
     translateSources() {
+        const worklogId = getWorklogCalendarId(this.plugin);
+        const looks = this.taskLooks();
         return this.plugin.cache.getAllEvents().map(
             ({ events, editable, color, id }): EventSourceInput => ({
                 id,
-                events: events.flatMap(
-                    (e) => toEventInput(e.id, e.event) || []
-                ),
+                events: events
+                    .filter(({ event }) => !isWorkflowTask(event))
+                    .flatMap((e) => {
+                        const input = toEventInput(e.id, e.event);
+                        if (!input) {
+                            return [];
+                        }
+                        return id === worklogId
+                            ? [this.decorateSession(input, looks)]
+                            : [input];
+                    }),
                 editable,
                 ...getCalendarColors(color),
             })
@@ -426,8 +496,23 @@ export class CalendarView extends ItemView {
                         );
                     }
                 });
+                const worklogId = getWorklogCalendarId(this.plugin);
+                const looks = toAdd.some(
+                    ({ calendarId }) => calendarId === worklogId
+                )
+                    ? this.taskLooks()
+                    : null;
                 toAdd.forEach(({ id, event, calendarId }) => {
-                    const eventInput = toEventInput(id, event);
+                    if (isWorkflowTask(event)) {
+                        return;
+                    }
+                    let eventInput = toEventInput(id, event);
+                    if (!eventInput) {
+                        return;
+                    }
+                    if (calendarId === worklogId && looks) {
+                        eventInput = this.decorateSession(eventInput, looks);
+                    }
                     console.debug("adding event", {
                         id,
                         event,
@@ -435,7 +520,7 @@ export class CalendarView extends ItemView {
                         calendarId,
                     });
                     const addedEvent = this.fullCalendarView?.addEvent(
-                        eventInput!,
+                        eventInput,
                         calendarId
                     );
                     console.debug("event that was added", addedEvent);
