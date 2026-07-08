@@ -9,7 +9,8 @@ import ReactModal from "./ReactModal";
 
 export function launchCreateModal(
     plugin: FullCalendarPlugin,
-    partialEvent: Partial<OFCEvent>
+    partialEvent: Partial<OFCEvent>,
+    defaultCalendarId?: string
 ) {
     const calendars = [...plugin.cache.calendars.entries()]
         .filter(([_, cal]) => cal instanceof EditableCalendar)
@@ -20,11 +21,14 @@ export function launchCreateModal(
                 name: cal.name,
             };
         });
+    const defaultIndex = defaultCalendarId
+        ? calendars.findIndex(({ id }) => id === defaultCalendarId)
+        : -1;
     new ReactModal(plugin.app, async (closeModal) =>
         React.createElement(EditEvent, {
             initialEvent: partialEvent,
             calendars,
-            defaultCalendarIndex: 0,
+            defaultCalendarIndex: defaultIndex === -1 ? 0 : defaultIndex,
             submit: async (data, calendarIndex) => {
                 const calendarId = calendars[calendarIndex].id;
                 try {

@@ -14,6 +14,7 @@ import { openFileForEvent } from "./actions";
 import { launchCreateModal, launchEditModal } from "./event_modal";
 import { isTask, toggleTask, unmakeTask } from "src/ui/tasks";
 import { UpdateViewCallback } from "src/core/EventCache";
+import { FULL_CALENDAR_KANBAN_VIEW_TYPE } from "./kanban";
 
 export const FULL_CALENDAR_VIEW_TYPE = "full-calendar-view";
 export const FULL_CALENDAR_SIDEBAR_VIEW_TYPE = "full-calendar-sidebar-view";
@@ -55,6 +56,9 @@ export class CalendarView extends ItemView {
     inSidebar: boolean;
     fullCalendarView: Calendar | null = null;
     callback: UpdateViewCallback | null = null;
+    // onOpen() re-runs on the same view instance (e.g. activateView() calls it
+    // on existing leaves), but the header action must only be added once.
+    kanbanActionAdded = false;
 
     constructor(
         leaf: WorkspaceLeaf,
@@ -101,6 +105,23 @@ export class CalendarView extends ItemView {
         }
         if (!this.plugin.cache.initialized) {
             await this.plugin.cache.populate();
+        }
+
+        if (!this.kanbanActionAdded) {
+            this.kanbanActionAdded = true;
+            // Main-tab calendars swap to the kanban board in place, so the
+            // two feel like one tool with two axes. The sidebar calendar is
+            // too narrow for a board, so it opens the kanban in a main tab.
+            this.addAction("columns", "Switch to Kanban board", () => {
+                if (this.inSidebar) {
+                    this.plugin.activateKanbanView();
+                } else {
+                    this.leaf.setViewState({
+                        type: FULL_CALENDAR_KANBAN_VIEW_TYPE,
+                        active: true,
+                    });
+                }
+            });
         }
 
         const container = this.containerEl.children[1];

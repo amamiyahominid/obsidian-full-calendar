@@ -4,6 +4,7 @@ import {
     FULL_CALENDAR_SIDEBAR_VIEW_TYPE,
     FULL_CALENDAR_VIEW_TYPE,
 } from "./ui/view";
+import { KanbanView, FULL_CALENDAR_KANBAN_VIEW_TYPE } from "./ui/kanban";
 import { renderCalendar } from "./ui/calendar";
 import { toEventInput } from "./ui/interop";
 import {
@@ -13,6 +14,7 @@ import {
 } from "./ui/settings";
 import { PLUGIN_SLUG } from "./types";
 import EventCache from "./core/EventCache";
+import ReminderService from "./core/ReminderService";
 import { ObsidianIO } from "./ObsidianAdapter";
 import { launchCreateModal } from "./ui/event_modal";
 import { nextSourceColor, migrateSourceColor } from "./ui/colors";
@@ -59,6 +61,8 @@ export default class FullCalendarPlugin extends Plugin {
         FOR_TEST_ONLY: () => null,
     });
 
+    reminderService = new ReminderService(this);
+
     renderCalendar = renderCalendar;
     processFrontmatter = toEventInput;
 
@@ -78,6 +82,21 @@ export default class FullCalendarPlugin extends Plugin {
             );
         }
     }
+    async activateKanbanView() {
+        const leaves = this.app.workspace.getLeavesOfType(
+            FULL_CALENDAR_KANBAN_VIEW_TYPE
+        );
+        if (leaves.length === 0) {
+            const leaf = this.app.workspace.getLeaf("tab");
+            await leaf.setViewState({
+                type: FULL_CALENDAR_KANBAN_VIEW_TYPE,
+                active: true,
+            });
+        } else {
+            this.app.workspace.revealLeaf(leaves[0]);
+        }
+    }
+
     async onload() {
         await this.loadSettings();
 
@@ -164,11 +183,24 @@ export default class FullCalendarPlugin extends Plugin {
             (leaf) => new CalendarView(leaf, this, true)
         );
 
+        this.registerView(
+            FULL_CALENDAR_KANBAN_VIEW_TYPE,
+            (leaf) => new KanbanView(leaf, this)
+        );
+
         this.addRibbonIcon(
             "calendar-glyph",
             "Open Full Calendar",
             async (_: MouseEvent) => {
                 await this.activateView();
+            }
+        );
+
+        this.addRibbonIcon(
+            "columns",
+            "Open Kanban board",
+            async (_: MouseEvent) => {
+                await this.activateKanbanView();
             }
         );
 
@@ -204,6 +236,14 @@ export default class FullCalendarPlugin extends Plugin {
         });
 
         this.addCommand({
+            id: "full-calendar-open-kanban",
+            name: "Open Kanban board",
+            callback: () => {
+                this.activateKanbanView();
+            },
+        });
+
+        this.addCommand({
             id: "full-calendar-open",
             name: "Open Calendar",
             callback: () => {
@@ -232,11 +272,16 @@ export default class FullCalendarPlugin extends Plugin {
             display: "Full Calendar",
             defaultMod: true,
         });
+
+        // Start firing pre-event notifications (desktop-only; no-ops otherwise).
+        this.reminderService.start();
     }
 
     onunload() {
+        this.reminderService.stop();
         this.app.workspace.detachLeavesOfType(FULL_CALENDAR_VIEW_TYPE);
         this.app.workspace.detachLeavesOfType(FULL_CALENDAR_SIDEBAR_VIEW_TYPE);
+        this.app.workspace.detachLeavesOfType(FULL_CALENDAR_KANBAN_VIEW_TYPE);
     }
 
     async loadSettings() {
@@ -253,6 +298,24 @@ export default class FullCalendarPlugin extends Plugin {
         this.cache.reset(this.settings.calendarSources);
         await this.cache.populate();
         this.cache.resync();
+    }
+
+    /**
+     * Persist reminder-related settings without the heavy cache reset (and its
+     * "Resetting..." Notice) that saveSettings() performs — reminders read the
+     * live cache, so only the polling loop needs to pick up the change.
+     */
+    async saveReminderSettings() {
+        await this.saveData(this.settings);
+        this.reminderService.restart();
+    }
+
+    /**
+     * Persist kanban filter selections without the cache reset that
+     * saveSettings() performs — filters only affect what the board renders.
+     */
+    async saveKanbanFilters() {
+        await this.saveData(this.settings);
     }
 
     /**

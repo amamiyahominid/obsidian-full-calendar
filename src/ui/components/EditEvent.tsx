@@ -2,6 +2,7 @@ import { DateTime } from "luxon";
 import * as React from "react";
 import { useEffect, useRef, useState } from "react";
 import { CalendarInfo, OFCEvent } from "../../types";
+import { weekOf } from "../sprint";
 import {
     buildRRule,
     parseRRule,
@@ -267,6 +268,8 @@ export const EditEvent = ({
         initialEvent?.type === "single" ? initialEvent.completed : undefined;
     const initialStatus =
         initialEvent?.type === "single" ? initialEvent.status : undefined;
+    const initialSprint =
+        initialEvent?.type === "single" ? initialEvent.sprint : undefined;
 
     const [complete, setComplete] = useState<string | boolean | null>(
         initialCompleted !== null && initialCompleted !== undefined
@@ -283,6 +286,15 @@ export const EditEvent = ({
     );
 
     const [status, setStatus] = useState<string>(initialStatus || "Backlog");
+
+    // "" means no sprint. The dropdown offers the planning window (this week
+    // through +3); an out-of-window value already on the event is kept as an
+    // extra choice so opening and saving the modal never rewrites it.
+    const [sprint, setSprint] = useState<string>(initialSprint || "");
+    const sprintChoices = [0, 1, 2, 3].map((offset) => weekOf(offset));
+    if (initialSprint && !sprintChoices.includes(initialSprint)) {
+        sprintChoices.push(initialSprint);
+    }
 
     // Preserve the original completion value so toggling "Task Event" off
     // and on doesn't reset a previously-set completion.
@@ -338,6 +350,10 @@ export const EditEvent = ({
                               ? originalCompleted
                               : null,
                           status: isTask ? status : undefined,
+                          // null deletes the frontmatter key (see
+                          // modifyFrontmatterString) so clearing the dropdown
+                          // actually removes `sprint:` from the note.
+                          sprint: sprint || null,
                       }),
             },
             calendarIndex
@@ -565,6 +581,21 @@ export const EditEvent = ({
                                 <option value="In Progress">In Progress</option>
                                 <option value="Review">Review</option>
                                 <option value="Done">Done</option>
+                            </select>
+                        </p>
+                        <p>
+                            <label htmlFor="sprint">Sprint </label>
+                            <select
+                                id="sprint"
+                                value={sprint}
+                                onChange={(e) => setSprint(e.target.value)}
+                            >
+                                <option value="">No sprint</option>
+                                {sprintChoices.map((week, i) => (
+                                    <option key={week} value={week}>
+                                        {i === 0 ? `${week} (this week)` : week}
+                                    </option>
+                                ))}
                             </select>
                         </p>
                     </>

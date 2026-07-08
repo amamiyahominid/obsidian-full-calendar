@@ -87,7 +87,7 @@ function newFrontmatter(fields: Partial<OFCEvent>): string {
     return (
         "---\n" +
         Object.entries(fields)
-            .filter(([_, v]) => v !== undefined)
+            .filter(([_, v]) => v !== undefined && v !== null)
             .map(([k, v]) => stringifyYamlLine(k, v))
             .join("\n") +
         "\n---\n"
@@ -102,7 +102,7 @@ function modifyFrontmatterString(
     let newFrontmatter: string[] = [];
     if (!frontmatter) {
         newFrontmatter = Object.entries(modifications)
-            .filter(([k, v]) => v !== undefined)
+            .filter(([k, v]) => v !== undefined && v !== null)
             .map(([k, v]) => stringifyYamlLine(k, v));
         page = "\n" + page;
     } else {
@@ -140,8 +140,12 @@ function modifyFrontmatterString(
             }
             const key = keys[0];
             linesAdded.add(key);
-            const newVal: PrintableAtom | undefined = modifications[key];
-            if (newVal !== undefined) {
+            const newVal: PrintableAtom | undefined | null = modifications[key];
+            if (newVal === null) {
+                // null is an explicit deletion marker: drop the key (and any
+                // block continuation lines) from the frontmatter entirely.
+                skipIndented = true;
+            } else if (newVal !== undefined) {
                 newFrontmatter.push(stringifyYamlLine(key, newVal));
                 skipIndented = true;
             } else {
@@ -154,7 +158,11 @@ function modifyFrontmatterString(
         newFrontmatter.push(
             ...(Object.keys(modifications) as [keyof OFCEvent])
                 .filter((k) => !linesAdded.has(k))
-                .filter((k) => modifications[k] !== undefined)
+                .filter(
+                    (k) =>
+                        modifications[k] !== undefined &&
+                        modifications[k] !== null
+                )
                 .map((k) =>
                     stringifyYamlLine(k, modifications[k] as PrintableAtom)
                 )

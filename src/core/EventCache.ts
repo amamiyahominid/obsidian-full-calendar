@@ -3,7 +3,7 @@ import equal from "deep-equal";
 
 import { Calendar } from "../calendars/Calendar";
 import { EditableCalendar } from "../calendars/EditableCalendar";
-import EventStore, { StoredEvent } from "./EventStore";
+import EventStore, { StoredEvent, EventPathLocation } from "./EventStore";
 import { CalendarInfo, OFCEvent, validateEvent } from "../types";
 import RemoteCalendar from "../calendars/RemoteCalendar";
 import FullNoteCalendar from "../calendars/FullNoteCalendar";
@@ -104,6 +104,8 @@ export default class EventCache {
 
     initialized = false;
 
+    private populatePromise: Promise<void> | null = null;
+
     lastRevalidation: number = 0;
 
     constructor(calendarInitializers: CalendarInitializerMap) {
@@ -116,6 +118,9 @@ export default class EventCache {
     reset(infos: CalendarInfo[]): void {
         this.lastRevalidation = 0;
         this.initialized = false;
+        // Detach any in-flight populate so the next populate() call reloads
+        // with the new calendar set instead of awaiting the stale run.
+        this.populatePromise = null;
         this.calendarInfos = infos;
         this.pkCounter = 0;
         this.calendars.clear();
@@ -135,11 +140,32 @@ export default class EventCache {
 
     /**
      * Populate the cache with events.
+     *
+     * Single-flight: views populate lazily from onOpen(), so several views
+     * restored at once (calendar tab + sidebar + kanban, common on mobile
+     * where I/O is slow) would otherwise each run a full populate and insert
+     * every event into the store a second time under a fresh generated ID.
      */
     async populate(): Promise<void> {
+        if (this.initialized) {
+            return;
+        }
+        if (this.populatePromise) {
+            return this.populatePromise;
+        }
+        this.populatePromise = this.doPopulate().finally(() => {
+            this.populatePromise = null;
+        });
+        return this.populatePromise;
+    }
+
+    private async doPopulate(): Promise<void> {
         if (!this.initialized || this.calendars.size === 0) {
             this.init();
         }
+        // Populating is strictly additive, so start from an empty store in
+        // case an earlier partial populate already inserted some events.
+        this.store.clear();
         for (const calendar of this.calendars.values()) {
             const results = await calendar.getEvents();
             results.forEach(([event, location]) =>
@@ -196,6 +222,15 @@ export default class EventCache {
 
     getEventById(s: string): OFCEvent | null {
         return this.store.getEventById(s);
+    }
+
+    /**
+     * The on-disk location of an event, or null if it has none (e.g. remote
+     * ical/CalDAV events). Used to navigate to an event's note from outside the
+     * view, such as a reminder notification.
+     */
+    getEventLocation(eventId: string): EventPathLocation | null {
+        return this.store.getEventDetails(eventId)?.location ?? null;
     }
 
     getCalendarById(c: string): Calendar | undefined {

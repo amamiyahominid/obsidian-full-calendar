@@ -34,6 +34,22 @@ export interface FullCalendarSettings {
     // Auto-folders the user manually removed from the calendar list — never
     // re-added automatically until they re-select the folder in settings.
     dismissedAutoFolders: string[];
+    // Fire a native OS notification before timed events start. Desktop-only.
+    enableReminders: boolean;
+    // How many minutes before an event's start to notify.
+    reminderMinutesBefore: number;
+    // Kanban board filters, persisted across sessions with a light save (no
+    // cache reset). `sprint` is "all" | "current" | "none" | a literal
+    // "YYYY-Www" week; `project` is a calendar ID or null for all. `groupBy`
+    // picks the board axis; it's optional because loadSettings() merges
+    // shallowly, so a data.json saved before this field existed yields a
+    // kanbanFilters object without it — readers fall back to "status".
+    kanbanFilters: {
+        project: string | null;
+        sprint: string;
+        hideDone: boolean;
+        groupBy?: "status" | "sprint";
+    };
 }
 
 export const DEFAULT_SETTINGS: FullCalendarSettings = {
@@ -48,6 +64,14 @@ export const DEFAULT_SETTINGS: FullCalendarSettings = {
     clickToCreateEventFromMonthView: true,
     autoTaskFolder: "",
     dismissedAutoFolders: [],
+    enableReminders: false,
+    reminderMinutesBefore: 10,
+    kanbanFilters: {
+        project: null,
+        sprint: "all",
+        hideDone: false,
+        groupBy: "status",
+    },
 };
 
 const WEEKDAYS = [
@@ -292,6 +316,41 @@ export class FullCalendarSettingTab extends PluginSettingTab {
                     }
                     await this.plugin.saveSettings();
                     this.display();
+                });
+            });
+
+        containerEl.createEl("h2", { text: "Reminders" });
+        new Setting(containerEl)
+            .setName("Notify before events start")
+            .setDesc(
+                "Show a native OS notification before timed events begin. " +
+                    "Desktop only — Obsidian must be running. Covers all " +
+                    "calendars, including recurring and remote (ical) events."
+            )
+            .addToggle((toggle) => {
+                toggle.setValue(this.plugin.settings.enableReminders);
+                toggle.onChange(async (val) => {
+                    this.plugin.settings.enableReminders = val;
+                    await this.plugin.saveReminderSettings();
+                });
+            });
+
+        new Setting(containerEl)
+            .setName("Minutes before")
+            .setDesc("How many minutes before the start time to notify.")
+            .addText((text) => {
+                text.inputEl.type = "number";
+                text.inputEl.min = "0";
+                text.setValue(
+                    this.plugin.settings.reminderMinutesBefore.toString()
+                );
+                text.onChange(async (val) => {
+                    const parsed = parseInt(val, 10);
+                    if (!Number.isFinite(parsed) || parsed < 0) {
+                        return;
+                    }
+                    this.plugin.settings.reminderMinutesBefore = parsed;
+                    await this.plugin.saveReminderSettings();
                 });
             });
 

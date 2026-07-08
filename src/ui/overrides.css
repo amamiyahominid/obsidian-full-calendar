@@ -90,3 +90,222 @@
 	border-color: black !important;
 	border-width: 1px !important;
 }
+
+/* ---- Kanban board ---- */
+
+.ofc-kanban {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+}
+
+.ofc-kanban-toolbar {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	padding: var(--size-4-2) var(--size-4-2) 0;
+	flex-shrink: 0;
+	/* Match the board: full width while columns are stretching, and once
+	   they hit their 320px cap (board group centers itself), cap the toolbar
+	   at that same total width and center it, so the toolbar's left edge
+	   tracks the first column instead of the pane edge. Width terms mirror
+	   .ofc-kanban-board/.ofc-kanban-column: column max-width, column gap,
+	   and the board's horizontal padding. */
+	width: 100%;
+	max-width: calc(
+		var(--ofc-kanban-cols, 5) * 320px +
+			(var(--ofc-kanban-cols, 5) - 1) * var(--size-4-3) + 2 *
+			var(--size-4-2)
+	);
+	margin: 0 auto;
+}
+
+.ofc-kanban-hide-done {
+	display: flex;
+	align-items: center;
+	gap: var(--size-2-2);
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+	cursor: pointer;
+	user-select: none;
+}
+
+.ofc-kanban-groupby {
+	display: flex;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	overflow: hidden;
+}
+
+.ofc-kanban-groupby button {
+	border: none;
+	border-radius: 0;
+	box-shadow: none;
+	background-color: var(--background-secondary);
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	padding: var(--size-2-2) var(--size-4-2);
+	cursor: pointer;
+}
+
+.ofc-kanban-groupby button.ofc-kanban-groupby-active {
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+.ofc-kanban-board {
+	display: flex;
+	gap: var(--size-4-3);
+	flex-grow: 1;
+	min-height: 0;
+	overflow-x: auto;
+	align-items: flex-start;
+	/* Columns grow to fill the pane up to their max width; any leftover
+	   space is split evenly around the group instead of piling up on the
+	   right. `safe` keeps the first column reachable when they overflow. */
+	justify-content: safe center;
+	padding: var(--size-4-2);
+}
+
+.ofc-kanban-column {
+	flex: 1 1 240px;
+	min-width: 220px;
+	max-width: 320px;
+	max-height: 100%;
+	display: flex;
+	flex-direction: column;
+	background-color: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+}
+
+.ofc-kanban-column.ofc-kanban-dragover {
+	border-color: var(--interactive-accent);
+	background-color: var(--background-modifier-hover);
+}
+
+.ofc-kanban-column-header {
+	display: flex;
+	align-items: center;
+	gap: var(--size-2-2);
+	padding: var(--size-4-2) var(--size-4-2) var(--size-2-2);
+	font-weight: var(--font-semibold);
+}
+
+.ofc-kanban-dot {
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	flex-shrink: 0;
+}
+
+.ofc-kanban-column-title {
+	flex-grow: 1;
+	font-size: var(--font-ui-small);
+}
+
+.ofc-kanban-count {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	background-color: var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	padding: 0 var(--size-2-2);
+}
+
+.ofc-kanban-hours {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.ofc-kanban-add {
+	flex-shrink: 0;
+	padding: var(--size-2-1);
+	--icon-size: var(--icon-s);
+}
+
+/* This week's column on the sprint axis. */
+.ofc-kanban-column-current {
+	border-color: var(--interactive-accent);
+}
+
+/* Carry-over is display-only (no drop target): visually recede a step. */
+.ofc-kanban-column-nodrop {
+	border-style: dashed;
+	background-color: transparent;
+}
+
+.ofc-kanban-card-status {
+	font-size: var(--font-ui-smaller);
+	border-radius: var(--radius-s);
+	padding: 0 var(--size-2-2);
+}
+
+.ofc-kanban-cards {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-2-3);
+	padding: var(--size-2-3) var(--size-4-2) var(--size-4-2);
+	overflow-y: auto;
+	min-height: 3em; /* keep an empty column droppable */
+}
+
+.ofc-kanban-card {
+	background-color: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-left-width: 5px;
+	border-radius: var(--radius-s);
+	padding: var(--size-2-3) var(--size-4-2);
+	cursor: grab;
+}
+
+.ofc-kanban-card:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.ofc-kanban-card.ofc-kanban-dragging {
+	opacity: 0.5;
+}
+
+.ofc-kanban-card-title {
+	font-size: var(--font-ui-small);
+}
+
+.ofc-kanban-card-title.ofc-kanban-card-done {
+	text-decoration: line-through;
+	color: var(--text-muted);
+}
+
+.ofc-kanban-card-meta {
+	display: flex;
+	align-items: center;
+	gap: var(--size-2-2);
+	flex-wrap: wrap;
+	margin-top: var(--size-2-1);
+}
+
+.ofc-kanban-card-date {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.ofc-kanban-card-sprint {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	background-color: var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	padding: 0 var(--size-2-2);
+}
+
+.ofc-kanban-card-sprint-current {
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+.ofc-kanban-card-date.ofc-kanban-card-overdue {
+	color: var(--text-error);
+}
+
+.ofc-kanban-empty {
+	color: var(--text-muted);
+	padding: var(--size-4-4);
+}

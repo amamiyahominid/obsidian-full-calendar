@@ -90,6 +90,21 @@ export const EventSchema = z.discriminatedUnion("type", [
                     : val,
             z.string().optional()
         ),
+        // Sprint the task is assigned to, as an ISO week ("2026-W27").
+        // Same array-unwrap as status for metadata-menu compatibility; a bare
+        // `sprint:` line parses as YAML null, so nulls collapse to undefined —
+        // parsed events never carry null. Writers set null explicitly as a
+        // deletion marker: modifyFrontmatterString removes the key for
+        // null-valued modifications.
+        sprint: z.preprocess(
+            (val) =>
+                Array.isArray(val)
+                    ? val.length > 0
+                        ? val[0]
+                        : undefined
+                    : val ?? undefined,
+            z.string().nullable().optional()
+        ),
     }),
     z.object({
         type: z.literal("recurring"),

@@ -189,7 +189,6 @@ describe("Note Calendar Tests", () => {
             endTime: 12:30
             type: single
             date: 2022-01-01
-            endDate: null
             ---
             ",
             ]
@@ -273,10 +272,49 @@ describe("Note Calendar Tests", () => {
             endTime: 13:30
             type: single
             date: 2022-01-01
-            endDate: null
             ---
             "
         `);
+    });
+    it("removes a frontmatter key when its modification is null", async () => {
+        const event = parseEvent({
+            title: "Test Event",
+            allDay: true,
+            date: "2022-01-01",
+            status: "Ready",
+            sprint: "2022-W01",
+        });
+        const filename = "2022-01-01 Test Event.md";
+        const obsidian = makeApp(
+            MockAppBuilder.make()
+                .folder(
+                    new MockAppBuilder("events").file(
+                        filename,
+                        new FileBuilder().frontmatter(event)
+                    )
+                )
+                .done()
+        );
+        const calendar = new FullNoteCalendar(obsidian, color, dirName);
+        const file = obsidian.getAbstractFileByPath(
+            join("events", filename)
+        ) as TFile;
+        const contents = await obsidian.read(file);
+
+        await calendar.modifyEvent(
+            { path: join("events", filename), lineNumber: undefined },
+            // @ts-ignore
+            { ...event, sprint: null },
+            jest.fn()
+        );
+        const [, rewriteCallback] = (obsidian.rewrite as jest.Mock).mock
+            .calls[0];
+        const rewritten = rewriteCallback(contents);
+        // The sprint key is deleted outright — not serialized as "sprint: null".
+        expect(rewritten).not.toContain("sprint");
+        // Untouched keys survive the rewrite.
+        expect(rewritten).toContain("status: Ready");
+        expect(rewritten).toContain("date: 2022-01-01");
     });
     // it("modify an existing event with a new date", async () => {
     // 	const event: OFCEvent = {
