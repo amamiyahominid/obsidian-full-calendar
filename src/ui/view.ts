@@ -250,16 +250,23 @@ export class CalendarView extends ItemView {
             return;
         }
 
-        // Task tray beside the calendar (main tab, desktop only — the
-        // sidebar and phones are too narrow for a second column).
+        // Task tray next to the calendar (main tab only — the sidebar is too
+        // narrow). Desktop: a resizable side column. Mobile: a horizontal
+        // card strip above the calendar, since phones have no width to spare.
         const layoutEl = container.createDiv({ cls: "ofc-calendar-layout" });
-        const trayEl =
-            !this.inSidebar && !Platform.isMobile
-                ? layoutEl.createDiv({ cls: "ofc-task-tray" })
-                : null;
+        if (Platform.isMobile) {
+            layoutEl.addClass("ofc-calendar-layout-mobile");
+        }
+        const trayEl = !this.inSidebar
+            ? layoutEl.createDiv({ cls: "ofc-task-tray" })
+            : null;
         if (trayEl) {
-            trayEl.style.width = `${this.plugin.settings.trayWidth}px`;
-            this.setupTrayResizer(layoutEl, trayEl);
+            if (Platform.isMobile) {
+                trayEl.addClass("ofc-task-tray-mobile");
+            } else {
+                trayEl.style.width = `${this.plugin.settings.trayWidth}px`;
+                this.setupTrayResizer(layoutEl, trayEl);
+            }
         }
         let calendarEl = layoutEl.createDiv({ cls: "ofc-calendar-main" });
 
