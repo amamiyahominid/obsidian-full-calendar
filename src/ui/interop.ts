@@ -275,6 +275,14 @@ export function fromEventApi(event: EventApi): OFCEvent {
         (event.end as Date | null) ??
         new Date(start.getTime() + 60 * 60 * 1000);
     const endDate = getDate(end);
+    // All-day events carry an EXCLUSIVE end (next midnight) — with
+    // forceEventDuration even a one-day event gets one, e.g. when a timed
+    // TODO is dropped onto the all-day lane. That must round-trip as
+    // endDate: null, or the daily-note writer rejects it as multi-day and
+    // the drop reverts. (Genuine multi-day spans keep the exclusive form
+    // for backwards compatibility.)
+    const singleDayAllDay =
+        event.allDay && getDate(new Date(end.getTime() - 1)) === startDate;
     return {
         title: event.title,
         ...(event.allDay
@@ -310,7 +318,9 @@ export function fromEventApi(event: EventApi): OFCEvent {
             : {
                   type: "single",
                   date: startDate,
-                  ...(startDate !== endDate ? { endDate } : { endDate: null }),
+                  ...(startDate !== endDate && !singleDayAllDay
+                      ? { endDate }
+                      : { endDate: null }),
                   // Raw value, NOT the status-derived taskCompleted — a drag
                   // must never materialize `completed` in task-note
                   // frontmatter (status owns done-ness there).

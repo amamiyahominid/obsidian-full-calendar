@@ -23,7 +23,7 @@ import "@fullcalendar/core";
 import { DateEnv } from "@fullcalendar/common";
 import rrulePlugin from "@fullcalendar/rrule";
 
-import { toEventInput } from "./interop";
+import { fromEventApi, toEventInput } from "./interop";
 import { expandRRuleOccurrences } from "./rruleExpand";
 import { OFCEvent } from "../types";
 
@@ -144,5 +144,48 @@ describe("JST this-and-following split boundary", () => {
             expect(days).toContain(marker(2026, 7, 2, 16, 0));
             expect(Math.max(...days)).toBe(marker(2026, 7, 2, 16, 0));
         });
+    });
+});
+
+describe("fromEventApi single-day all-day normalization", () => {
+    const api = (overrides: Record<string, unknown>) =>
+        ({
+            title: "todo",
+            extendedProps: { ofcCompleted: false },
+            ...overrides,
+        } as unknown as Parameters<typeof fromEventApi>[0]);
+
+    it("normalizes a one-day all-day event (exclusive next-midnight end) to endDate: null", () => {
+        const result = fromEventApi(
+            api({
+                allDay: true,
+                start: new Date(2026, 6, 8, 0, 0, 0),
+                end: new Date(2026, 6, 9, 0, 0, 0),
+            })
+        );
+        expect(result).toEqual(
+            expect.objectContaining({
+                type: "single",
+                date: "2026-07-08",
+                endDate: null,
+                allDay: true,
+            })
+        );
+    });
+
+    it("keeps the exclusive end for genuine multi-day spans", () => {
+        const result = fromEventApi(
+            api({
+                allDay: true,
+                start: new Date(2026, 6, 8, 0, 0, 0),
+                end: new Date(2026, 6, 10, 0, 0, 0),
+            })
+        );
+        expect(result).toEqual(
+            expect.objectContaining({
+                date: "2026-07-08",
+                endDate: "2026-07-10",
+            })
+        );
     });
 });
