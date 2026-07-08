@@ -470,6 +470,26 @@
 	flex-direction: column;
 }
 
+/* Phones: reserve space for Obsidian's bottom toolbar at the LAYOUT level.
+   The old `.is-phone .fc` height hack assumed .fc was the pane's direct
+   child; inside the tray layout it left the wrapper full-height and the
+   calendar footer collided with the app's navigation bar. */
+.is-phone .ofc-calendar-layout {
+	height: calc(100% - 4rem);
+}
+
+.is-phone .ofc-calendar-layout .fc {
+	height: 100%;
+}
+
+/* In the column layout the pane height comes from flex, not an inherited
+   100% (which would overflow past the footer). */
+.ofc-calendar-layout-mobile .ofc-calendar-main {
+	height: auto;
+	min-height: 0;
+	flex: 1;
+}
+
 .ofc-task-tray-mobile-list {
 	width: 100%;
 	flex: 1;
