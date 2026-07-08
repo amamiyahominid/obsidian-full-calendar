@@ -60,6 +60,10 @@ export abstract class EditableCalendar extends Calendar {
     abstract modifyEvent(
         location: EventPathLocation,
         newEvent: OFCEvent,
-        updateCacheWithLocation: (loc: EventLocation) => void
+        updateCacheWithLocation: (loc: EventLocation) => void,
+        // The event as it was before this modification. Line-based calendars
+        // use its title to re-locate the line when the stored line number has
+        // gone stale between metadata-cache refreshes.
+        oldEvent?: OFCEvent
     ): Promise<void>;
 }

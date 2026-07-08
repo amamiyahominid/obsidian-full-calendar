@@ -462,6 +462,7 @@ export default class EventCache {
     ): Promise<boolean> {
         const { calendar, location: oldLocation } =
             this.getInfoForEditableEvent(eventId);
+        const oldEvent = this.store.getEventById(eventId) ?? undefined;
         const { path, lineNumber } = oldLocation;
         console.debug("updating event with ID", eventId);
 
@@ -476,7 +477,8 @@ export default class EventCache {
                     id: eventId,
                     event: newEvent,
                 });
-            }
+            },
+            oldEvent
         );
 
         this.updateViews(

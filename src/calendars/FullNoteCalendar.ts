@@ -274,7 +274,8 @@ export default class FullNoteCalendar extends EditableCalendar {
     async modifyEvent(
         location: EventPathLocation,
         event: OFCEvent,
-        updateCacheWithLocation: (loc: EventLocation) => void
+        updateCacheWithLocation: (loc: EventLocation) => void,
+        _oldEvent?: OFCEvent
     ): Promise<void> {
         const { path } = location;
         const file = this.app.getFileByPath(path);

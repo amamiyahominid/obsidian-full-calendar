@@ -501,6 +501,41 @@ export default class DailyNoteCalendar extends EditableCalendar {
         return event;
     }
 
+    /**
+     * Stored line numbers go stale between the metadata cache's debounced
+     * refreshes (e.g. two quick drags in a row). Verify the recorded line
+     * still holds this event's title; if not, re-locate it by title — and
+     * refuse to touch anything when that isn't unambiguous, rather than
+     * splicing a wrong line and corrupting the note.
+     */
+    private findEventLine(
+        lines: string[],
+        lineNumber: number,
+        title: string
+    ): number | null {
+        const wanted = title.trim();
+        const matches = (line: string | undefined): boolean => {
+            if (line === undefined || !line.match(listRegex)) {
+                return false;
+            }
+            const text = line
+                .replace(listRegex, "")
+                .replace(fieldRegex, "")
+                .trim();
+            return text === wanted;
+        };
+        if (matches(lines[lineNumber])) {
+            return lineNumber;
+        }
+        const hits: number[] = [];
+        lines.forEach((line, i) => {
+            if (matches(line)) {
+                hits.push(i);
+            }
+        });
+        return hits.length === 1 ? hits[0] : null;
+    }
+
     private getConcreteLocation({ path, lineNumber }: EventPathLocation): {
         file: TFile;
         lineNumber: number;
@@ -527,8 +562,11 @@ export default class DailyNoteCalendar extends EditableCalendar {
     async modifyEvent(
         loc: EventPathLocation,
         newEvent: OFCEvent,
-        updateCacheWithLocation: (loc: EventLocation) => void
+        updateCacheWithLocation: (loc: EventLocation) => void,
+        oldEvent?: OFCEvent
     ): Promise<void> {
+        // Relocation must match what's on disk NOW, i.e. the PRE-edit title.
+        const needle = (oldEvent ?? newEvent).title;
         console.debug("modified daily note event");
         if (newEvent.type !== "single" && newEvent.type !== undefined) {
             throw new Error(
@@ -558,12 +596,10 @@ export default class DailyNoteCalendar extends EditableCalendar {
             if (!newFile) {
                 newFile = (await createDailyNote(m)) as TFile;
             }
-            await this.app.read(newFile);
-
-            const metadata = this.app.getMetadata(newFile);
-            if (!metadata) {
-                throw new Error("No metadata for file " + file.path);
-            }
+            // The target note may have JUST been created — wait for its
+            // metadata instead of racing the cache and appending a duplicate
+            // heading at the end of the file.
+            const metadata = await this.app.waitForMetadata(newFile);
             // A missing heading is fine — addToHeading appends it to the end
             // of the destination note.
             const headingInfo =
@@ -574,7 +610,17 @@ export default class DailyNoteCalendar extends EditableCalendar {
             await this.app.rewrite(file, async (oldFileContents) => {
                 // Open the old file and remove the event.
                 let lines = oldFileContents.split("\n");
-                lines.splice(lineNumber, 1);
+                const sourceLine = this.findEventLine(
+                    lines,
+                    lineNumber,
+                    needle
+                );
+                if (sourceLine === null) {
+                    throw new Error(
+                        `Could not find "${needle}" in ${file.path} — the note just changed. Try again.`
+                    );
+                }
+                lines.splice(sourceLine, 1);
                 await this.app.rewrite(newFile, (newFileContents) => {
                     // Before writing that change back to disk, open the new file and add the event.
                     const { page, lineNumber } =
@@ -606,15 +652,21 @@ export default class DailyNoteCalendar extends EditableCalendar {
             updateCacheWithLocation({ file, lineNumber });
             await this.app.rewrite(file, (contents) => {
                 const lines = contents.split("\n");
+                const target = this.findEventLine(lines, lineNumber, needle);
+                if (target === null) {
+                    throw new Error(
+                        `Could not find "${needle}" in ${file.path} — the note just changed. Try again.`
+                    );
+                }
                 const newLine = modifyListItem(
-                    lines[lineNumber],
+                    lines[target],
                     this.todos ? this.asTodoItem(newEvent) : newEvent,
                     { omitAllDay: this.todos }
                 );
                 if (!newLine) {
                     throw new Error("Did not successfully update line.");
                 }
-                lines[lineNumber] = newLine;
+                lines[target] = newLine;
                 return lines.join("\n");
             });
         }
