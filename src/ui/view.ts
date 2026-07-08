@@ -537,12 +537,28 @@ export class CalendarView extends ItemView {
                     calendar: { id, events, editable, color },
                 } = payload;
                 console.debug("replacing calendar with id", payload.calendar);
+                // Same treatment as translateSources: workflow tasks stay off
+                // the calendar, session blocks get their task's colors. This
+                // path serves remote revalidation AND startup load retries of
+                // local sources.
+                const looks =
+                    id === getWorklogCalendarId(this.plugin)
+                        ? this.taskLooks()
+                        : null;
                 this.fullCalendarView?.getEventSourceById(id)?.remove();
                 this.fullCalendarView?.addEventSource({
                     id,
-                    events: events.flatMap(
-                        ({ id, event }) => toEventInput(id, event) || []
-                    ),
+                    events: events
+                        .filter(({ event }) => !isWorkflowTask(event))
+                        .flatMap(({ id: eventId, event }) => {
+                            const input = toEventInput(eventId, event);
+                            if (!input) {
+                                return [];
+                            }
+                            return looks
+                                ? [this.decorateSession(input, looks)]
+                                : [input];
+                        }),
                     editable,
                     ...getCalendarColors(color),
                 });

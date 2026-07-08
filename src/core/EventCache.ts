@@ -159,7 +159,7 @@ export default class EventCache {
         return this.populatePromise;
     }
 
-    // Consecutive populate retries triggered by failing sources (folders not
+    // Consecutive retry rounds for sources that failed to load (folders not
     // indexed yet on startup, typically with iCloud vaults). Capped so a
     // permanently broken source doesn't retry forever.
     private populateRetries = 0;
@@ -171,7 +171,7 @@ export default class EventCache {
         // Populating is strictly additive, so start from an empty store in
         // case an earlier partial populate already inserted some events.
         this.store.clear();
-        let failures = 0;
+        const failed: Calendar[] = [];
         for (const calendar of this.calendars.values()) {
             // One broken source (folder not indexed yet on startup, renamed
             // project dir, network hiccup) must not abort the whole populate
@@ -180,7 +180,7 @@ export default class EventCache {
             try {
                 results = await calendar.getEvents();
             } catch (e) {
-                failures++;
+                failed.push(calendar);
                 console.warn(
                     `Full Calendar: skipping calendar "${calendar.id}" — could not load events.`,
                     e
@@ -199,27 +199,73 @@ export default class EventCache {
         this.initialized = true;
         this.revalidateRemoteCalendars();
 
-        // Skipped sources would otherwise stay empty for the whole session —
-        // populate() is a no-op once initialized. Retry with backoff (vault
-        // indexing usually finishes within seconds of startup) and repaint
-        // the views on success.
-        if (failures > 0 && this.populateRetries < 5) {
-            this.populateRetries++;
-            const delay = 2000 * this.populateRetries;
-            console.warn(
-                `Full Calendar: ${failures} calendar(s) failed to load; retrying in ${delay}ms.`
-            );
-            setTimeout(() => {
-                this.initialized = false;
-                this.populate().then(() => this.resync());
-            }, delay);
-        } else if (failures === 0) {
-            this.populateRetries = 0;
+        if (failed.length > 0) {
+            this.scheduleLoadRetry(failed);
         } else {
+            this.populateRetries = 0;
+        }
+    }
+
+    /**
+     * Re-load ONLY the given calendars after a backoff, on their existing
+     * instances — never by re-running populate. A full re-populate would
+     * re-init() every calendar, replacing remote (ics/CalDAV) instances with
+     * fresh ones whose internal event caches are empty, and the revalidation
+     * cooldown would then keep them blank for minutes.
+     */
+    private scheduleLoadRetry(calendars: Calendar[]): void {
+        if (this.populateRetries >= 5) {
             new Notice(
                 "Full Calendar: some calendars failed to load. Check the developer console for details."
             );
+            return;
         }
+        this.populateRetries++;
+        const delay = 2000 * this.populateRetries;
+        console.warn(
+            `Full Calendar: ${calendars.length} calendar(s) failed to load; retrying in ${delay}ms.`
+        );
+        setTimeout(async () => {
+            const stillFailing: Calendar[] = [];
+            for (const calendar of calendars) {
+                let results: EventResponse[];
+                try {
+                    results = await calendar.getEvents();
+                } catch (e) {
+                    stillFailing.push(calendar);
+                    console.warn(
+                        `Full Calendar: retry failed for calendar "${calendar.id}".`,
+                        e
+                    );
+                    continue;
+                }
+                // Idempotency: drop anything a partial earlier load left
+                // behind before inserting the fresh results.
+                [...this.store.deleteEventsInCalendar(calendar)];
+                const newEvents = results.map(([event, location]) => ({
+                    event,
+                    id: event.id || this.generateId(),
+                    location,
+                }));
+                newEvents.forEach(({ event, id, location }) =>
+                    this.store.add({ calendar, location, id, event })
+                );
+                this.updateCalendar({
+                    id: calendar.id,
+                    editable: calendar instanceof EditableCalendar,
+                    color: calendar.color,
+                    events: newEvents.map(({ event, id }) => ({ event, id })),
+                });
+                console.debug(
+                    `Full Calendar: calendar "${calendar.id}" loaded on retry.`
+                );
+            }
+            if (stillFailing.length > 0) {
+                this.scheduleLoadRetry(stillFailing);
+            } else {
+                this.populateRetries = 0;
+            }
+        }, delay);
     }
 
     resync(): void {
