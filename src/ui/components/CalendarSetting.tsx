@@ -124,6 +124,11 @@ export const CalendarSettingRow = ({
     deleteCalendar,
 }: CalendarSettingsProps) => {
     const isCalDAV = setting.type === "caldav";
+    // Work-log session blocks are painted with their linked task's colors,
+    // so a color choice here would be misleading (same reasoning as the
+    // add-calendar modal). TODO calendars keep it — their blocks genuinely
+    // render in the source color.
+    const isWorklog = setting.type === "dailynote" && !setting.todos;
     return (
         <div className="setting-item">
             <button
@@ -155,12 +160,14 @@ export const CalendarSettingRow = ({
             )}
             {isCalDAV && <NameSetting source={setting} />}
             {isCalDAV && <Username source={setting} />}
-            <input
-                style={{ maxWidth: "25%", minWidth: "3rem" }}
-                type="color"
-                value={setting.color}
-                onChange={(e) => onColorChange(e.target.value)}
-            />
+            {!isWorklog && (
+                <input
+                    style={{ maxWidth: "25%", minWidth: "3rem" }}
+                    type="color"
+                    value={setting.color}
+                    onChange={(e) => onColorChange(e.target.value)}
+                />
+            )}
         </div>
     );
 };
