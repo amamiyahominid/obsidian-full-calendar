@@ -167,10 +167,12 @@ describe("addToHeading", () => {
             item: session,
             headingText: "作業ログ",
         });
-        expect(lineNumber).toBe(2);
         const lines = result.split("\n");
-        expect(lines[2]).toContain("[[APIリファクタ]]");
-        expect(lines[4]).toBe("## メモ");
+        // A blank line is retrofitted between the heading and the entries.
+        expect(lines[1]).toBe("");
+        expect(lineNumber).toBe(3);
+        expect(lines[3]).toContain("[[APIリファクタ]]");
+        expect(lines[5]).toBe("## メモ");
     });
 
     it("appends at end of file, keeping a blank line under the section", () => {
@@ -180,8 +182,25 @@ describe("addToHeading", () => {
             item: session,
             headingText: "作業ログ",
         });
-        expect(lineNumber).toBe(2);
-        expect(result.split("\n")[2]).toContain("[[APIリファクタ]]");
+        const lines = result.split("\n");
+        expect(lines[1]).toBe("");
+        expect(lineNumber).toBe(3);
+        expect(lines[3]).toContain("[[APIリファクタ]]");
+        expect(result.endsWith("\n\n")).toBe(true);
+    });
+
+    it("adds the first entry below a blank line after the heading", () => {
+        const page = ["- memo", "", "## 作業ログ"].join("\n");
+        const { page: result, lineNumber } = addToHeading(page, {
+            heading: heading(2),
+            item: session,
+            headingText: "作業ログ",
+        });
+        const lines = result.split("\n");
+        expect(lines[2]).toBe("## 作業ログ");
+        expect(lines[3]).toBe("");
+        expect(lineNumber).toBe(4);
+        expect(lines[4]).toContain("[[APIリファクタ]]");
         expect(result.endsWith("\n\n")).toBe(true);
     });
 
@@ -193,9 +212,11 @@ describe("addToHeading", () => {
             headingText: "作業ログ",
         });
         const lines = result.split("\n");
-        // blank line above the heading, entry, then a visible blank line
-        expect(lines[lines.length - 5]).toBe("");
-        expect(lines[lines.length - 4]).toBe("## 作業ログ");
+        // blank line above the heading, blank line under it, the entry,
+        // then a visible blank line at the end
+        expect(lines[lines.length - 6]).toBe("");
+        expect(lines[lines.length - 5]).toBe("## 作業ログ");
+        expect(lines[lines.length - 4]).toBe("");
         expect(lines[lines.length - 3]).toContain("[[APIリファクタ]]");
         expect(lineNumber).toBe(lines.length - 3);
         expect(result.endsWith("\n\n")).toBe(true);

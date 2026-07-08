@@ -267,12 +267,23 @@ export const addToHeading = (
     const listItem = makeListItem(item);
     if (heading) {
         const headingLine = heading.position.start.line;
+        // Keep a blank line between the heading and the first entry; add it
+        // if missing (this also retrofits sections written before this
+        // convention — the metadata-cache update refreshes the shifted line
+        // numbers of any entries below).
+        if (
+            headingLine + 1 >= lines.length ||
+            lines[headingLine + 1].trim() !== ""
+        ) {
+            lines.splice(headingLine + 1, 0, "");
+        }
+        const firstEntryLine = headingLine + 2;
         // Append at the END of the heading's section so entries read
         // chronologically (a work log grows downward). The section ends at
         // the next heading of the same or higher level, or at EOF; trailing
         // blank lines stay below the inserted item.
         let boundary = lines.length;
-        for (let i = headingLine + 1; i < lines.length; i++) {
+        for (let i = firstEntryLine; i < lines.length; i++) {
             const match = lines[i].match(/^(#{1,6})\s/);
             if (match && match[1].length <= heading.level) {
                 boundary = i;
@@ -281,7 +292,7 @@ export const addToHeading = (
         }
         let lineNumber = boundary;
         while (
-            lineNumber > headingLine + 1 &&
+            lineNumber > firstEntryLine &&
             lines[lineNumber - 1].trim() === ""
         ) {
             lineNumber--;
@@ -302,14 +313,15 @@ export const addToHeading = (
         return { page: lines.join("\n"), lineNumber };
     } else {
         // Separate the new section from the note body with a blank line
-        // above the heading and leave a blank line below the entry.
+        // above the heading, one between the heading and the entry, and one
+        // below the entry.
         while (lines.length > 0 && lines[lines.length - 1].trim() === "") {
             lines.pop();
         }
         if (lines.length > 0) {
             lines.push("");
         }
-        lines.push(`## ${headingText}`);
+        lines.push(`## ${headingText}`, "");
         const lineNumber = lines.length;
         lines.push(listItem);
         lines.push("", "");
