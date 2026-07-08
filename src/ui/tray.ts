@@ -29,12 +29,7 @@ import { formatHours } from "./sprint";
 
 export type TaskTray = { refresh: () => void; destroy: () => void };
 
-// Status is the source of truth when present; `completed` only decides for
-// legacy notes that never picked a workflow stage.
-const cardDone = (c: Card): boolean =>
-    c.event.status !== undefined
-        ? isDoneStatus(c.event.status)
-        : c.event.completed === true;
+const cardDone = (c: Card): boolean => isDoneStatus(c.event.status);
 
 /**
  * This sprint's tasks, carry-overs included. Done tasks stay visible — the

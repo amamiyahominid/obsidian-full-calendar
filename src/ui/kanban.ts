@@ -9,7 +9,6 @@ import {
     isDoneStatus,
     workflowStages,
 } from "./colors";
-import { isTask } from "./tasks";
 import { openFileForEvent } from "./actions";
 import { actualMinutesByLinktext, linktextForEvent } from "../core/worklog";
 import { launchCreateModal, launchEditModal } from "./event_modal";
@@ -39,9 +38,9 @@ export type Card = {
 };
 
 /**
- * All workflow task cards: single events from project (full-note) calendars
- * that opted into the workflow (status set) or are tasks. Daily-note sources
- * are excluded — their checkbox lines are day-scoped TODOs and work-log
+ * All workflow task cards. A task is a status-bearing single event from a
+ * project (full-note) calendar — nothing else counts. Daily-note sources are
+ * excluded — their checkbox lines are day-scoped TODOs and work-log
  * sessions, not 案件, and would otherwise flood the Backlog column.
  */
 export function collectTaskCards(plugin: FullCalendarPlugin): Card[] {
@@ -54,7 +53,7 @@ export function collectTaskCards(plugin: FullCalendarPlugin): Card[] {
             if (event.type !== "single") {
                 continue;
             }
-            if (event.status === undefined && !isTask(event)) {
+            if (event.status === undefined) {
                 continue;
             }
             cards.push({
@@ -99,10 +98,7 @@ type Column = {
 const cardStatus = (e: Card["event"]): string =>
     e.status ?? workflowStages()[0];
 
-// Status is the source of truth when present; `completed` only decides for
-// legacy notes that never picked a workflow stage.
-const cardDone = (e: Card["event"]): boolean =>
-    e.status !== undefined ? isDoneStatus(e.status) : e.completed === true;
+const cardDone = (e: Card["event"]): boolean => isDoneStatus(e.status);
 
 // "local::30_projects/01_foo/tasks" → "01_foo". Falls back to the raw ID for
 // sources that don't follow the project-folder convention.
