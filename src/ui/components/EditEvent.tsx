@@ -307,10 +307,19 @@ export const EditEvent = ({
     // through +3); an out-of-window value already on the event is kept as an
     // extra choice so opening and saving the modal never rewrites it.
     const [sprint, setSprint] = useState<string>(initialSprint || "");
-    const sprintChoices = [0, 1, 2, 3].map((offset) => weekOf(offset));
+    const sprintChoices = Array.from({ length: 9 }, (_, i) => weekOf(i));
     if (initialSprint && !sprintChoices.includes(initialSprint)) {
         sprintChoices.push(initialSprint);
     }
+
+    const [estimate, setEstimate] = useState<string>(
+        initialEvent?.type === "single" && initialEvent.estimate
+            ? String(initialEvent.estimate)
+            : ""
+    );
+    const [link, setLink] = useState<string>(
+        (initialEvent?.type === "single" && initialEvent.link) || ""
+    );
 
     // Preserve the original completion value so toggling "Task Event" off
     // and on doesn't reset a previously-set completion.
@@ -391,9 +400,26 @@ export const EditEvent = ({
                                   ? undefined
                                   : null) as unknown as string | undefined,
                               sprint: sprint || null,
+                              estimate: (() => {
+                                  const n = parseFloat(estimate);
+                                  return isFinite(n) && n > 0 ? n : null;
+                              })() as unknown as number | undefined,
+                              link: link.trim() || null,
+                              // Tasks never render on the calendar, so their
+                              // time fields are vestigial — null deletes the
+                              // keys from existing notes as they get edited.
+                              ...(workflowTask
+                                  ? {
+                                        allDay: null as unknown as boolean,
+                                        startTime: null as unknown as string,
+                                        endTime: null,
+                                    }
+                                  : {}),
                           };
                       })()),
-            },
+                // The nulls above are the writers' key-deletion markers,
+                // which OFCEvent's parsed type deliberately doesn't model.
+            } as unknown as OFCEvent,
             calendarIndex
         );
     };
@@ -490,7 +516,7 @@ export const EditEvent = ({
                         </>
                     )}
                 </p>
-                {!isDailyNote && (
+                {!isDailyNote && !isTask && (
                     <p>
                         <label htmlFor="allDay">All day event </label>
                         <input
@@ -501,7 +527,7 @@ export const EditEvent = ({
                         />
                     </p>
                 )}
-                {!isDailyNote && (
+                {!isDailyNote && !isTask && (
                     <p>
                         <label htmlFor="recurring">Recurring Event </label>
                         <input
@@ -637,6 +663,31 @@ export const EditEvent = ({
                                     </option>
                                 ))}
                             </select>
+                        </p>
+                        <p>
+                            <label htmlFor="estimate">Estimate (min) </label>
+                            <input
+                                id="estimate"
+                                type="number"
+                                min="0"
+                                step="5"
+                                style={{ width: "6em" }}
+                                value={estimate}
+                                onChange={makeChangeListener(
+                                    setEstimate,
+                                    (x) => x
+                                )}
+                            />
+                        </p>
+                        <p>
+                            <label htmlFor="link">Link </label>
+                            <input
+                                id="link"
+                                type="text"
+                                placeholder="https://…"
+                                value={link}
+                                onChange={makeChangeListener(setLink, (x) => x)}
+                            />
                         </p>
                     </>
                 )}

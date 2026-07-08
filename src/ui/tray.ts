@@ -148,10 +148,15 @@ export function renderTaskTray(
                 cls: "ofc-tray-card-title",
                 text: card.event.title,
             });
-            const minutes = actuals.get(linktext) ?? 0;
+            const actual = actuals.get(linktext) ?? 0;
+            const estimate = card.event.estimate ?? 0;
             const parts = [
                 session ? `● ${session.event.startTime}–` : card.event.status,
-                minutes > 0 ? `⏱ ${formatHours(minutes)}` : null,
+                actual > 0 || estimate > 0
+                    ? `⏱ ${formatHours(actual)}${
+                          estimate > 0 ? ` / ${formatHours(estimate)}` : ""
+                      }`
+                    : null,
             ].filter((p): p is string => !!p);
             if (parts.length > 0) {
                 bodyEl.createDiv({

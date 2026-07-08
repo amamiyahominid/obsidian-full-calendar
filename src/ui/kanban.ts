@@ -18,7 +18,6 @@ import {
     formatHours,
     isWeekString,
     sprintBucket,
-    totalScheduledMinutes,
     weekOf,
     weekStartDate,
 } from "./sprint";
@@ -295,8 +294,12 @@ export class KanbanView extends ItemView {
             if (column.key === "none") {
                 continue;
             }
-            const minutes = totalScheduledMinutes(
-                column.cards.map((c) => (c.event.allDay ? {} : c.event))
+            // Planned load per sprint = sum of task estimates. (Tasks used to
+            // carry startTime/endTime for this, but those fields moved to
+            // work-log sessions.)
+            const minutes = column.cards.reduce(
+                (total, c) => total + (c.event.estimate ?? 0),
+                0
             );
             column.hoursLabel = minutes > 0 ? formatHours(minutes) : null;
         }
@@ -564,13 +567,16 @@ export class KanbanView extends ItemView {
             }
         }
 
-        // Actual logged time from work-log sessions linking this task.
+        // Logged time from work-log sessions vs. the task's estimate.
         const linktext = linktextForEvent(this.plugin, id);
-        const minutes = linktext ? this.actuals.get(linktext) ?? 0 : 0;
-        if (minutes > 0) {
+        const actual = linktext ? this.actuals.get(linktext) ?? 0 : 0;
+        const estimate = event.estimate ?? 0;
+        if (actual > 0 || estimate > 0) {
             metaEl.createSpan({
                 cls: "ofc-kanban-card-actual",
-                text: `⏱ ${formatHours(minutes)}`,
+                text: `⏱ ${formatHours(actual)}${
+                    estimate > 0 ? ` / ${formatHours(estimate)}` : ""
+                }`,
             });
         }
 

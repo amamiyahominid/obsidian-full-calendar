@@ -105,6 +105,21 @@ export const EventSchema = z.discriminatedUnion("type", [
                     : val ?? undefined,
             z.string().nullable().optional()
         ),
+        // Estimated effort in minutes. metadata-menu may write numbers as
+        // strings; coerce, and drop anything non-positive. Writers use null
+        // as the deletion marker, so parsed events never carry it.
+        estimate: z.preprocess((val) => {
+            const n = typeof val === "string" ? parseFloat(val) : val;
+            return typeof n === "number" && isFinite(n) && n > 0
+                ? n
+                : undefined;
+        }, z.number().optional()),
+        // External reference (e.g. a Backlog URL). Empty strings and nulls
+        // collapse to undefined; writers set null to delete the key.
+        link: z.preprocess(
+            (val) => (typeof val === "string" && val ? val : undefined),
+            z.string().nullable().optional()
+        ),
     }),
     z.object({
         type: z.literal("recurring"),
@@ -130,7 +145,14 @@ export function parseEvent(obj: unknown): OFCEvent {
     if (typeof obj !== "object") {
         throw new Error("value for parsing was not an object.");
     }
-    const objectWithDefaults = { type: "single", allDay: false, ...obj };
+    const record = obj as Record<string, unknown>;
+    // Events that don't say either way are all-day unless they carry a start
+    // time — task notes can drop the vestigial `allDay: true`.
+    const objectWithDefaults = {
+        type: "single",
+        allDay: !record.startTime,
+        ...obj,
+    };
     return {
         ...CommonSchema.parse(objectWithDefaults),
         ...TimeSchema.parse(objectWithDefaults),
