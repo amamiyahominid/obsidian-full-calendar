@@ -270,7 +270,36 @@ export const EditEvent = ({
 
     const [allDay, setAllDay] = useState(initialEvent?.allDay || false);
 
-    const [calendarIndex, setCalendarIndex] = useState(defaultCalendarIndex);
+    // Creating from the calendar must not produce notes in the task folders
+    // — tasks come from the kanban's + button (which seeds a status) or
+    // quickadd. So a non-task CREATE (edit modals have deleteEvent) only
+    // offers the daily-note targets: work-log sessions and TODOs.
+    const dailyOnly =
+        !deleteEvent &&
+        !(
+            initialEvent?.type === "single" &&
+            ((initialEvent.completed !== undefined &&
+                initialEvent.completed !== null) ||
+                initialEvent.status !== undefined)
+        );
+    const selectableCalendars = calendars
+        .map((cal, idx) => ({ cal, idx }))
+        .filter(({ cal }) =>
+            dailyOnly
+                ? cal.type === "dailynote"
+                : cal.type === "local" || cal.type === "dailynote"
+        );
+
+    const [calendarIndex, setCalendarIndex] = useState(() => {
+        if (
+            selectableCalendars.some(({ idx }) => idx === defaultCalendarIndex)
+        ) {
+            return defaultCalendarIndex;
+        }
+        // The default (usually the first task folder) isn't offered; fall
+        // back to the first selectable target.
+        return selectableCalendars[0]?.idx ?? defaultCalendarIndex;
+    });
 
     // Daily-note targets need none of the event-shape controls: work-log
     // sessions are always timed and checkbox-free, TODO lines always all-day
@@ -453,27 +482,21 @@ export const EditEvent = ({
                             parseInt
                         )}
                     >
-                        {calendars
-                            .flatMap((cal) =>
-                                cal.type === "local" || cal.type === "dailynote"
-                                    ? [cal]
-                                    : []
-                            )
-                            .map((cal, idx) => (
-                                <option
-                                    key={idx}
-                                    value={idx}
-                                    disabled={
-                                        !(
-                                            initialEvent?.title === undefined ||
-                                            calendars[calendarIndex].type ===
-                                                cal.type
-                                        )
-                                    }
-                                >
-                                    {cal.name}
-                                </option>
-                            ))}
+                        {selectableCalendars.map(({ cal, idx }) => (
+                            <option
+                                key={idx}
+                                value={idx}
+                                disabled={
+                                    !(
+                                        initialEvent?.title === undefined ||
+                                        calendars[calendarIndex].type ===
+                                            cal.type
+                                    )
+                                }
+                            >
+                                {cal.name}
+                            </option>
+                        ))}
                     </select>
                 </p>
                 <p>
