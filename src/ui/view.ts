@@ -4,14 +4,10 @@ import { Calendar, EventInput, EventSourceInput } from "@fullcalendar/core";
 import { renderCalendar } from "./calendar";
 import FullCalendarPlugin from "../main";
 import { FCError, OFCEvent, PLUGIN_SLUG } from "../types";
-import {
-    dateEndpointsToFrontmatter,
-    fromEventApi,
-    toEventInput,
-} from "./interop";
+import { fromEventApi, toEventInput } from "./interop";
 import { renderOnboarding } from "./onboard";
 import { openFileForEvent } from "./actions";
-import { launchCreateModal, launchEditModal } from "./event_modal";
+import { launchEditModal } from "./event_modal";
 import { isTask, toggleTask, unmakeTask } from "src/ui/tasks";
 import { UpdateViewCallback } from "src/core/EventCache";
 import DailyNoteCalendar from "src/calendars/DailyNoteCalendar";
@@ -317,37 +313,9 @@ export class CalendarView extends ItemView {
                     }
                 }
             },
-            select: async (start, end, allDay, viewType) => {
-                if (viewType === "dayGridMonth") {
-                    // Month view will set the end day to the next day even on a single-day event.
-                    // This is problematic when moving an event created in the month view to the
-                    // time grid to give it a time.
-
-                    // The fix is just to subtract 1 from the end date before processing.
-                    end.setDate(end.getDate() - 1);
-                }
-                const partialEvent = dateEndpointsToFrontmatter(
-                    start,
-                    end,
-                    allDay
-                );
-                try {
-                    if (
-                        this.plugin.settings.clickToCreateEventFromMonthView ||
-                        viewType !== "dayGridMonth"
-                    ) {
-                        launchCreateModal(this.plugin, partialEvent);
-                    } else {
-                        this.fullCalendarView?.changeView("timeGridDay");
-                        this.fullCalendarView?.gotoDate(start);
-                    }
-                } catch (e) {
-                    if (e instanceof Error) {
-                        console.error(e);
-                        new Notice(e.message);
-                    }
-                }
-            },
+            // No `select` handler: nothing is created from the calendar
+            // surface. Tasks come from the kanban's + / quickadd, sessions
+            // from the tray (drag or ▶), TODOs from the daily note itself.
             modifyEvent: async (newEvent, oldEvent) => {
                 try {
                     const didModify = await this.plugin.cache.updateEventWithId(
