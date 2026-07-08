@@ -21,6 +21,12 @@ import { expandRRuleOccurrences } from "./rruleExpand";
 // timezone offsets; see rruleExpand.ts for the full story.
 rrulePlugin.recurringTypes[0].expand = expandRRuleOccurrences;
 
+/** "YYYY-MM-DD" of a Date in the host's local timezone. */
+const localDayString = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+        d.getDate()
+    ).padStart(2, "0")}`;
+
 interface ExtraRenderProps {
     eventClick?: (info: EventClickArg) => void;
     select?: (
@@ -40,6 +46,14 @@ interface ExtraRenderProps {
     ) => Promise<void>;
     toggleTask?: (event: EventApi, isComplete: boolean) => Promise<boolean>;
     forceNarrow?: boolean;
+    // Identifies daily-note TODO calendar sources. The daily-note template
+    // rolls unchecked TODOs forward by COPYING them into the next day's note,
+    // so only the newest note holds the live list — unchecked items from
+    // older notes are stale duplicates and get hidden. Checked items stay as
+    // history on the day they were completed. This is a live predicate, not a
+    // snapshot, so calendars added after the view opened are still
+    // recognized.
+    isTodoSource?: (sourceId: string) => boolean;
 }
 
 export function renderCalendar(
@@ -56,6 +70,7 @@ export function renderCalendar(
         eventMouseEnter,
         openContextMenuForEvent,
         toggleTask,
+        isTodoSource,
     } = settings || {};
     const modifyEventCallback =
         modifyEvent &&
@@ -215,11 +230,31 @@ export function renderCalendar(
                 | string[]
                 | undefined;
             if (skipDates && skipDates.length > 0 && event.start) {
-                const d = event.start;
-                const localDay = `${d.getFullYear()}-${String(
-                    d.getMonth() + 1
-                ).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-                if (skipDates.includes(localDay)) {
+                if (skipDates.includes(localDayString(event.start))) {
+                    el.style.display = "none";
+                    return;
+                }
+            }
+            // Hide unchecked TODOs from all but the newest daily note that
+            // has any: the template's rollover copies them forward, so only
+            // the latest note's list is live. Checked TODOs stay visible as
+            // history on the day they were completed.
+            if (
+                isTodoSource &&
+                event.start &&
+                event.extendedProps.isTask &&
+                event.extendedProps.taskCompleted === false &&
+                event.source?.id &&
+                isTodoSource(event.source.id)
+            ) {
+                const sourceId = event.source.id;
+                const latestDay = cal
+                    .getEvents()
+                    .filter((e) => e.source?.id === sourceId && e.start)
+                    .map((e) => localDayString(e.start!))
+                    .sort()
+                    .pop();
+                if (latestDay && localDayString(event.start) < latestDay) {
                     el.style.display = "none";
                     return;
                 }

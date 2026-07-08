@@ -39,7 +39,8 @@ export default class FullCalendarPlugin extends Plugin {
                 ? new DailyNoteCalendar(
                       new ObsidianIO(this.app),
                       info.color,
-                      info.heading
+                      info.heading,
+                      info.todos
                   )
                 : null,
         ical: (info) =>

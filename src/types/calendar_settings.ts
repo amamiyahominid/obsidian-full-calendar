@@ -3,7 +3,15 @@ import { OFCEvent } from "./schema";
 
 const calendarOptionsSchema = z.discriminatedUnion("type", [
     z.object({ type: z.literal("local"), directory: z.string() }),
-    z.object({ type: z.literal("dailynote"), heading: z.string() }),
+    // Two modes: `heading` parses list items under that heading; `todos`
+    // instead parses bare checkbox lines at the top of the note (before the
+    // first heading or thematic break) as all-day tasks. `heading` is unused
+    // in todos mode and defaults to "" so old configs stay valid.
+    z.object({
+        type: z.literal("dailynote"),
+        heading: z.string().default(""),
+        todos: z.boolean().default(false),
+    }),
     z.object({ type: z.literal("ical"), url: z.string().url() }),
     z.object({
         type: z.literal("caldav"),
@@ -54,7 +62,7 @@ export function safeParseCalendarInfo(obj: unknown): CalendarInfo | null {
  * Construct a partial calendar source of the specified type
  */
 export function makeDefaultPartialCalendarSource(
-    type: CalendarInfo["type"] | "icloud"
+    type: CalendarInfo["type"] | "icloud" | "dailytodo"
 ): Partial<CalendarInfo> {
     if (type === "icloud") {
         return {
@@ -63,6 +71,15 @@ export function makeDefaultPartialCalendarSource(
                 .getPropertyValue("--interactive-accent")
                 .trim(),
             url: "https://caldav.icloud.com",
+        };
+    }
+    if (type === "dailytodo") {
+        return {
+            type: "dailynote",
+            todos: true,
+            color: getComputedStyle(document.body)
+                .getPropertyValue("--interactive-accent")
+                .trim(),
         };
     }
 

@@ -136,7 +136,16 @@ export const CalendarSettingRow = ({
             {setting.type === "local" ? (
                 <DirectorySetting source={setting} />
             ) : setting.type === "dailynote" ? (
-                <HeadingSetting source={setting} />
+                setting.todos ? (
+                    <div
+                        className="setting-item-control"
+                        style={{ display: "block", textAlign: "center" }}
+                    >
+                        <span>TODOs at the top of daily notes</span>
+                    </div>
+                ) : (
+                    <HeadingSetting source={setting} />
+                )
             ) : (
                 <UrlSetting source={setting} />
             )}
@@ -210,11 +219,15 @@ export class CalendarSettings extends React.Component<
                             onClick={() => {
                                 if (
                                     this.state.sources.filter(
-                                        (s) => s.type === "dailynote"
+                                        (s) =>
+                                            s.type === "dailynote" && !s.todos
+                                    ).length > 1 ||
+                                    this.state.sources.filter(
+                                        (s) => s.type === "dailynote" && s.todos
                                     ).length > 1
                                 ) {
                                     new Notice(
-                                        "Only one daily note calendar is allowed."
+                                        "Only one daily note calendar of each kind is allowed."
                                     );
                                     return;
                                 }

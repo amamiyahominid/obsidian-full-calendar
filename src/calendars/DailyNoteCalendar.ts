@@ -94,6 +94,26 @@ const getListsUnderHeading = (
     );
 };
 
+/**
+ * List items in the "TODO region" of a daily note: everything from the top of
+ * the file until the first heading or thematic break (`---`), whichever comes
+ * first. This matches the daily-note template's layout, where rolled-over
+ * TODOs sit at the top of the note above a `---` separator.
+ */
+export const getTodoRegionListItems = (
+    metadata: CachedMetadata
+): ListItemCache[] => {
+    if (!metadata.listItems) {
+        return [];
+    }
+    const firstHeading = metadata.headings?.[0]?.position.start.offset;
+    const firstBreak = metadata.sections?.find(
+        (s) => s.type === "thematicBreak"
+    )?.position.start.offset;
+    const boundary = Math.min(firstHeading ?? Infinity, firstBreak ?? Infinity);
+    return metadata.listItems.filter((l) => l.position.start.offset < boundary);
+};
+
 const listRegex = /^(\s*)\-\s+(\[(.)\]\s+)?/;
 const checkboxRegex = /^\s*\-\s+\[(.)\]\s+/;
 const checkboxTodo = (s: string) => {
@@ -104,15 +124,27 @@ const checkboxTodo = (s: string) => {
     return match[1] === " " ? false : match[1];
 };
 
-const getInlineEventFromLine = (
+export const getInlineEventFromLine = (
     text: string,
-    globalAttrs: Partial<OFCEvent>
+    globalAttrs: Partial<OFCEvent>,
+    opts: { implicitTodo?: boolean } = {}
 ): OFCEvent | null => {
     const attrs = getInlineAttributes(text);
 
-    // Shortcut validation if there are no inline attributes.
     if (Object.keys(attrs).length === 0) {
-        return null;
+        // In TODO mode, a bare checkbox line counts as an all-day task on the
+        // note's day; anything without a checkbox is prose. Outside TODO mode,
+        // lines without inline attributes are never events.
+        const completed = opts.implicitTodo ? checkboxTodo(text) : null;
+        if (completed === null) {
+            return null;
+        }
+        return validateEvent({
+            title: text.replace(listRegex, "").trim(),
+            completed,
+            ...globalAttrs,
+            allDay: true,
+        });
     }
 
     return validateEvent({
@@ -126,7 +158,8 @@ const getInlineEventFromLine = (
 function getAllInlineEventsFromFile(
     fileText: string,
     listItems: ListItemCache[],
-    fileGlobalAttrs: Partial<OFCEvent>
+    fileGlobalAttrs: Partial<OFCEvent>,
+    opts: { implicitTodo?: boolean } = {}
 ): { lineNumber: number; event: OFCEvent }[] {
     const lines = fileText.split("\n");
     const listItemText: Line[] = listItems
@@ -136,10 +169,14 @@ function getAllInlineEventsFromFile(
     return listItemText
         .map((l) => ({
             lineNumber: l.lineNumber,
-            event: getInlineEventFromLine(l.text, {
-                ...fileGlobalAttrs,
-                type: "single",
-            }),
+            event: getInlineEventFromLine(
+                l.text,
+                {
+                    ...fileGlobalAttrs,
+                    type: "single",
+                },
+                opts
+            ),
         }))
         .flatMap(({ event, lineNumber }) =>
             event ? [{ event, lineNumber }] : []
@@ -156,7 +193,8 @@ const generateInlineAttributes = (attrs: Record<string, any>): string => {
 
 const makeListItem = (
     data: OFCEvent,
-    whitespacePrefix: string = ""
+    whitespacePrefix: string = "",
+    opts: { omitAllDay?: boolean } = {}
 ): string => {
     if (data.type !== "single") {
         throw new Error("Can only pass in single event.");
@@ -181,16 +219,23 @@ const makeListItem = (
         }
     }
 
-    if (!attrs["allDay"]) {
+    // In TODO mode the checkbox alone marks the line as an all-day task, and
+    // writing `[allDay:: true]` would get copied around by the daily-note
+    // template's rollover — so leave implicit lines attribute-free.
+    if (!attrs["allDay"] || opts.omitAllDay) {
         delete attrs["allDay"];
     }
 
     return `${whitespacePrefix}- ${
         checkbox || ""
-    } ${title} ${generateInlineAttributes(attrs)}`;
+    } ${title} ${generateInlineAttributes(attrs)}`.trimEnd();
 };
 
-const modifyListItem = (line: string, data: OFCEvent): string | null => {
+const modifyListItem = (
+    line: string,
+    data: OFCEvent,
+    opts: { omitAllDay?: boolean } = {}
+): string | null => {
     const listMatch = line.match(listRegex);
     if (!listMatch) {
         console.warn(
@@ -200,7 +245,7 @@ const modifyListItem = (line: string, data: OFCEvent): string | null => {
         return null;
     }
 
-    return makeListItem(data, listMatch[1]);
+    return makeListItem(data, listMatch[1], opts);
 };
 
 /**
@@ -232,25 +277,57 @@ const addToHeading = (
     }
 };
 
+/**
+ * Add a checkbox list item to the top of the note's TODO region (after YAML
+ * frontmatter if present), attribute-free so the daily-note template's
+ * rollover treats it like any hand-written TODO.
+ */
+const addToTodoRegion = (
+    page: string,
+    item: OFCEvent
+): { page: string; lineNumber: number } => {
+    const lines = page.split("\n");
+    let insertAt = 0;
+    if (lines[0]?.trim() === "---") {
+        const close = lines.findIndex((l, i) => i > 0 && l.trim() === "---");
+        if (close > 0) {
+            insertAt = close + 1;
+        }
+    }
+    lines.splice(insertAt, 0, makeListItem(item, "", { omitAllDay: true }));
+    return { page: lines.join("\n"), lineNumber: insertAt };
+};
+
 export default class DailyNoteCalendar extends EditableCalendar {
     app: ObsidianInterface;
     heading: string;
+    /** TODO mode: parse bare checkbox lines at the top of the note instead
+     * of attribute lines under `heading`. */
+    readonly todos: boolean;
 
-    constructor(app: ObsidianInterface, color: string, heading: string) {
+    constructor(
+        app: ObsidianInterface,
+        color: string,
+        heading: string,
+        todos: boolean = false
+    ) {
         super(color);
         appHasDailyNotesPluginLoaded();
         this.app = app;
         this.heading = heading;
+        this.todos = todos;
     }
 
     get type(): CalendarInfo["type"] {
         return "dailynote";
     }
     get identifier(): string {
-        return this.heading;
+        return this.todos ? "%todos%" : this.heading;
     }
     get name(): string {
-        return `Daily note under "${this.heading}"`;
+        return this.todos
+            ? "Daily note TODOs"
+            : `Daily note under "${this.heading}"`;
     }
     get directory(): string {
         const { folder } = getDailyNoteSettings();
@@ -270,9 +347,16 @@ export default class DailyNoteCalendar extends EditableCalendar {
         if (!cache) {
             return [];
         }
-        const listItems = getListsUnderHeading(this.heading, cache);
+        const listItems = this.todos
+            ? getTodoRegionListItems(cache)
+            : getListsUnderHeading(this.heading, cache);
         const inlineEvents = await this.app.process(file, (text) =>
-            getAllInlineEventsFromFile(text, listItems, { date })
+            getAllInlineEventsFromFile(
+                text,
+                listItems,
+                { date },
+                { implicitTodo: this.todos }
+            )
         );
         return inlineEvents.map(({ event, lineNumber }) => [
             event,
@@ -301,6 +385,16 @@ export default class DailyNoteCalendar extends EditableCalendar {
         if (!file) {
             file = (await createDailyNote(m)) as TFile;
         }
+
+        if (this.todos) {
+            const item = this.asTodoItem(event);
+            let lineNumber = await this.app.rewrite(file, (contents) => {
+                const { page, lineNumber } = addToTodoRegion(contents, item);
+                return [page, lineNumber] as [string, number];
+            });
+            return { file, lineNumber };
+        }
+
         const metadata = await this.app.waitForMetadata(file);
 
         const headingInfo = metadata.headings?.find(
@@ -320,6 +414,22 @@ export default class DailyNoteCalendar extends EditableCalendar {
             return [page, lineNumber] as [string, number];
         });
         return { file, lineNumber };
+    }
+
+    /**
+     * Ensure a TODO-mode line stays parseable when written back: an implicit
+     * (attribute-free) all-day line is only recognized by its checkbox, so
+     * give it one if the event doesn't have a completion state yet.
+     */
+    private asTodoItem(event: OFCEvent): OFCEvent {
+        if (
+            event.type === "single" &&
+            event.allDay &&
+            (event.completed === undefined || event.completed === null)
+        ) {
+            return { ...event, completed: false };
+        }
+        return event;
     }
 
     private getConcreteLocation({ path, lineNumber }: EventPathLocation): {
@@ -385,10 +495,10 @@ export default class DailyNoteCalendar extends EditableCalendar {
             if (!metadata) {
                 throw new Error("No metadata for file " + file.path);
             }
-            const headingInfo = metadata.headings?.find(
-                (h) => h.heading == this.heading
-            );
-            if (!headingInfo) {
+            const headingInfo = this.todos
+                ? undefined
+                : metadata.headings?.find((h) => h.heading == this.heading);
+            if (!this.todos && !headingInfo) {
                 throw new Error(
                     `Could not find heading ${this.heading} in daily note ${file.path}.`
                 );
@@ -400,11 +510,16 @@ export default class DailyNoteCalendar extends EditableCalendar {
                 lines.splice(lineNumber, 1);
                 await this.app.rewrite(newFile, (newFileContents) => {
                     // Before writing that change back to disk, open the new file and add the event.
-                    const { page, lineNumber } = addToHeading(newFileContents, {
-                        heading: headingInfo,
-                        item: newEvent,
-                        headingText: this.heading,
-                    });
+                    const { page, lineNumber } = this.todos
+                        ? addToTodoRegion(
+                              newFileContents,
+                              this.asTodoItem(newEvent)
+                          )
+                        : addToHeading(newFileContents, {
+                              heading: headingInfo,
+                              item: newEvent,
+                              headingText: this.heading,
+                          });
                     // Before any file changes are committed, call the updateCacheWithLocation callback to ensure
                     // the cache is properly updated with the new location.
                     updateCacheWithLocation({ file: newFile, lineNumber });
@@ -417,7 +532,11 @@ export default class DailyNoteCalendar extends EditableCalendar {
             updateCacheWithLocation({ file, lineNumber });
             await this.app.rewrite(file, (contents) => {
                 const lines = contents.split("\n");
-                const newLine = modifyListItem(lines[lineNumber], newEvent);
+                const newLine = modifyListItem(
+                    lines[lineNumber],
+                    this.todos ? this.asTodoItem(newEvent) : newEvent,
+                    { omitAllDay: this.todos }
+                );
                 if (!newLine) {
                     throw new Error("Did not successfully update line.");
                 }

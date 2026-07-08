@@ -14,6 +14,7 @@ import { openFileForEvent } from "./actions";
 import { launchCreateModal, launchEditModal } from "./event_modal";
 import { isTask, toggleTask, unmakeTask } from "src/ui/tasks";
 import { UpdateViewCallback } from "src/core/EventCache";
+import DailyNoteCalendar from "src/calendars/DailyNoteCalendar";
 import { FULL_CALENDAR_KANBAN_VIEW_TYPE } from "./kanban";
 
 export const FULL_CALENDAR_VIEW_TYPE = "full-calendar-view";
@@ -145,6 +146,12 @@ export class CalendarView extends ItemView {
         }
         this.fullCalendarView = renderCalendar(calendarEl, sources, {
             forceNarrow: this.inSidebar,
+            // Live lookup (not a snapshot) so TODO calendars added while the
+            // view is open still get their stale rolled-over copies hidden.
+            isTodoSource: (sourceId) => {
+                const cal = this.plugin.cache.getCalendarById(sourceId);
+                return cal instanceof DailyNoteCalendar && cal.todos;
+            },
             eventClick: async (info) => {
                 try {
                     if (

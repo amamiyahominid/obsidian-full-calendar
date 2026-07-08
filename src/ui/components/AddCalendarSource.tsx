@@ -272,12 +272,26 @@ export const AddCalendarSource = ({
                         directories={directories}
                     />
                 )}
-                {source.type === "dailynote" && (
+                {source.type === "dailynote" && !source.todos && (
                     <HeadingInput
                         source={setting}
                         changeListener={makeChangeListener}
                         headings={headings}
                     />
+                )}
+                {source.type === "dailynote" && source.todos && (
+                    <div className="setting-item">
+                        <div className="setting-item-info">
+                            <div className="setting-item-name">
+                                Daily note TODOs
+                            </div>
+                            <div className="setting-item-description">
+                                Checkbox items at the top of each daily note
+                                (above the first heading or divider) will show
+                                as all-day tasks on that note&apos;s day.
+                            </div>
+                        </div>
+                    </div>
                 )}
                 {source.type === "ical" || source.type === "caldav" ? (
                     <UrlInput

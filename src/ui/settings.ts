@@ -119,6 +119,7 @@ export function addCalendarButton(
                 (dropdown = d.addOptions({
                     local: "Full note",
                     dailynote: "Daily Note",
+                    dailytodo: "Daily Note TODOs",
                     icloud: "iCloud",
                     caldav: "CalDAV",
                     ical: "Remote (.ics format)",
@@ -160,7 +161,10 @@ export function addCalendarButton(
                     return createElement(AddCalendarSource, {
                         source: {
                             ...makeDefaultPartialCalendarSource(
-                                dropdown.getValue() as CalendarInfo["type"]
+                                dropdown.getValue() as
+                                    | CalendarInfo["type"]
+                                    | "icloud"
+                                    | "dailytodo"
                             ),
                             // Default to the next unused palette color (muted
                             // for ical, vivid otherwise) so newly added sources
