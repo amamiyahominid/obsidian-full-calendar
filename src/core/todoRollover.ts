@@ -77,6 +77,12 @@ export function appendTodosUnderHeading(
             boundary = i;
             break;
         }
+        // The daily template separates sections with horizontal rules;
+        // entries must land above the rule, not after it.
+        if (/^\s*(---+|\*\*\*+|___+)\s*$/.test(lines[i])) {
+            boundary = i;
+            break;
+        }
     }
     let insertAt = boundary;
     while (insertAt > headingLine + 1 && lines[insertAt - 1].trim() === "") {

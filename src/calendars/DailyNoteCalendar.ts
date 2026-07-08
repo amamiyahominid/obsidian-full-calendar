@@ -295,6 +295,12 @@ export const addToHeading = (
                 boundary = i;
                 break;
             }
+            // Horizontal rules separate sections in the daily template;
+            // entries must land above the rule, not after it.
+            if (/^\s*(---+|\*\*\*+|___+)\s*$/.test(lines[i])) {
+                boundary = i;
+                break;
+            }
         }
         let lineNumber = boundary;
         while (
