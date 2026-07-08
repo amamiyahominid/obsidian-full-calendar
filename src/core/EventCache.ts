@@ -159,6 +159,11 @@ export default class EventCache {
         return this.populatePromise;
     }
 
+    // Consecutive populate retries triggered by failing sources (folders not
+    // indexed yet on startup, typically with iCloud vaults). Capped so a
+    // permanently broken source doesn't retry forever.
+    private populateRetries = 0;
+
     private async doPopulate(): Promise<void> {
         if (!this.initialized || this.calendars.size === 0) {
             this.init();
@@ -166,6 +171,7 @@ export default class EventCache {
         // Populating is strictly additive, so start from an empty store in
         // case an earlier partial populate already inserted some events.
         this.store.clear();
+        let failures = 0;
         for (const calendar of this.calendars.values()) {
             // One broken source (folder not indexed yet on startup, renamed
             // project dir, network hiccup) must not abort the whole populate
@@ -174,6 +180,7 @@ export default class EventCache {
             try {
                 results = await calendar.getEvents();
             } catch (e) {
+                failures++;
                 console.warn(
                     `Full Calendar: skipping calendar "${calendar.id}" — could not load events.`,
                     e
@@ -191,6 +198,28 @@ export default class EventCache {
         }
         this.initialized = true;
         this.revalidateRemoteCalendars();
+
+        // Skipped sources would otherwise stay empty for the whole session —
+        // populate() is a no-op once initialized. Retry with backoff (vault
+        // indexing usually finishes within seconds of startup) and repaint
+        // the views on success.
+        if (failures > 0 && this.populateRetries < 5) {
+            this.populateRetries++;
+            const delay = 2000 * this.populateRetries;
+            console.warn(
+                `Full Calendar: ${failures} calendar(s) failed to load; retrying in ${delay}ms.`
+            );
+            setTimeout(() => {
+                this.initialized = false;
+                this.populate().then(() => this.resync());
+            }, delay);
+        } else if (failures === 0) {
+            this.populateRetries = 0;
+        } else {
+            new Notice(
+                "Full Calendar: some calendars failed to load. Check the developer console for details."
+            );
+        }
     }
 
     resync(): void {
