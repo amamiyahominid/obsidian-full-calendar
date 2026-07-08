@@ -295,11 +295,14 @@ export const EditEvent = ({
         return selectableCalendars[0]?.idx ?? defaultCalendarIndex;
     });
 
-    // Daily-note targets need none of the event-shape controls: work-log
-    // sessions are always timed and checkbox-free, TODO lines always all-day
-    // checkboxes — the calendar classes enforce both on write.
+    // Daily-note targets need almost none of the event-shape controls:
+    // work-log sessions are always timed and checkbox-free, TODO lines are
+    // checkboxes — the calendar classes enforce both on write. TODOs may
+    // carry a time though ("この辺でやる" chores), so they alone keep the
+    // all-day toggle.
     const targetCalendar = calendars[calendarIndex];
     const isDailyNote = targetCalendar?.type === "dailynote";
+    const isTodoTarget = isDailyNote && targetCalendar?.todos === true;
 
     const initialCompleted =
         initialEvent?.type === "single" ? initialEvent.completed : undefined;
@@ -534,7 +537,7 @@ export const EditEvent = ({
                         </>
                     )}
                 </p>
-                {!isDailyNote && !isTask && (
+                {((!isDailyNote && !isTask) || isTodoTarget) && (
                     <p>
                         <label htmlFor="allDay">All day event </label>
                         <input
