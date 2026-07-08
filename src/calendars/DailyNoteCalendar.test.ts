@@ -48,6 +48,12 @@ describe("getInlineEventFromLine in TODO mode", () => {
         expect(event?.allDay).toBe(true);
     });
 
+    it("ignores checkbox lines with no text (they'd render blank)", () => {
+        expect(
+            getInlineEventFromLine("- [ ] ", globals, { implicitTodo: true })
+        ).toBeNull();
+    });
+
     it("ignores bullet lines without a checkbox", () => {
         expect(
             getInlineEventFromLine("- ただのメモ", globals, {

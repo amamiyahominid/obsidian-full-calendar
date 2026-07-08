@@ -141,7 +141,11 @@ export const CalendarSettingRow = ({
                         className="setting-item-control"
                         style={{ display: "block", textAlign: "center" }}
                     >
-                        <span>TODOs at the top of daily notes</span>
+                        <span>
+                            {setting.heading
+                                ? `TODOs under "${setting.heading}" in daily notes`
+                                : "TODOs at the top of daily notes"}
+                        </span>
                     </div>
                 ) : (
                     <HeadingSetting source={setting} />

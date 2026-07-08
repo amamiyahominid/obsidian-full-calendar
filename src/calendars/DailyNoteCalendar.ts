@@ -139,8 +139,13 @@ export const getInlineEventFromLine = (
         if (completed === null) {
             return null;
         }
+        const title = text.replace(listRegex, "").trim();
+        if (!title) {
+            // "- [ ]" with no text would render as a blank block.
+            return null;
+        }
         return validateEvent({
-            title: text.replace(listRegex, "").trim(),
+            title,
             completed,
             ...globalAttrs,
             allDay: true,
@@ -260,11 +265,12 @@ type AddToHeadingProps = {
 };
 export const addToHeading = (
     page: string,
-    { heading, item, headingText }: AddToHeadingProps
+    { heading, item, headingText }: AddToHeadingProps,
+    opts: { omitAllDay?: boolean } = {}
 ): { page: string; lineNumber: number } => {
     let lines = page.split("\n");
 
-    const listItem = makeListItem(item);
+    const listItem = makeListItem(item, "", opts);
     if (heading) {
         const headingLine = heading.position.start.line;
         // Keep a blank line between the heading and the first entry; add it
@@ -399,9 +405,12 @@ export default class DailyNoteCalendar extends EditableCalendar {
         if (!cache) {
             return [];
         }
-        const listItems = this.todos
-            ? getTodoRegionListItems(cache)
-            : getListsUnderHeading(this.heading, cache);
+        // TODO mode reads under its heading when one is configured (e.g.
+        // "## TODO"); without one it falls back to the top-of-file region.
+        const listItems =
+            this.todos && !this.heading
+                ? getTodoRegionListItems(cache)
+                : getListsUnderHeading(this.heading, cache);
         const inlineEvents = await this.app.process(file, (text) =>
             getAllInlineEventsFromFile(
                 text,
@@ -438,7 +447,7 @@ export default class DailyNoteCalendar extends EditableCalendar {
             file = (await createDailyNote(m)) as TFile;
         }
 
-        if (this.todos) {
+        if (this.todos && !this.heading) {
             const item = this.asTodoItem(event);
             let lineNumber = await this.app.rewrite(file, (contents) => {
                 const { page, lineNumber } = addToTodoRegion(contents, item);
@@ -454,12 +463,17 @@ export default class DailyNoteCalendar extends EditableCalendar {
         const headingInfo = metadata.headings?.find(
             (h) => h.heading == this.heading
         );
+        const item = this.todos ? this.asTodoItem(event) : event;
         let lineNumber = await this.app.rewrite(file, (contents) => {
-            const { page, lineNumber } = addToHeading(contents, {
-                heading: headingInfo,
-                item: event,
-                headingText: this.heading,
-            });
+            const { page, lineNumber } = addToHeading(
+                contents,
+                {
+                    heading: headingInfo,
+                    item,
+                    headingText: this.heading,
+                },
+                { omitAllDay: this.todos }
+            );
             return [page, lineNumber] as [string, number];
         });
         return { file, lineNumber };
@@ -546,9 +560,10 @@ export default class DailyNoteCalendar extends EditableCalendar {
             }
             // A missing heading is fine — addToHeading appends it to the end
             // of the destination note.
-            const headingInfo = this.todos
-                ? undefined
-                : metadata.headings?.find((h) => h.heading == this.heading);
+            const headingInfo =
+                this.todos && !this.heading
+                    ? undefined
+                    : metadata.headings?.find((h) => h.heading == this.heading);
 
             await this.app.rewrite(file, async (oldFileContents) => {
                 // Open the old file and remove the event.
@@ -556,16 +571,23 @@ export default class DailyNoteCalendar extends EditableCalendar {
                 lines.splice(lineNumber, 1);
                 await this.app.rewrite(newFile, (newFileContents) => {
                     // Before writing that change back to disk, open the new file and add the event.
-                    const { page, lineNumber } = this.todos
-                        ? addToTodoRegion(
-                              newFileContents,
-                              this.asTodoItem(newEvent)
-                          )
-                        : addToHeading(newFileContents, {
-                              heading: headingInfo,
-                              item: newEvent,
-                              headingText: this.heading,
-                          });
+                    const { page, lineNumber } =
+                        this.todos && !this.heading
+                            ? addToTodoRegion(
+                                  newFileContents,
+                                  this.asTodoItem(newEvent)
+                              )
+                            : addToHeading(
+                                  newFileContents,
+                                  {
+                                      heading: headingInfo,
+                                      item: this.todos
+                                          ? this.asTodoItem(newEvent)
+                                          : newEvent,
+                                      headingText: this.heading,
+                                  },
+                                  { omitAllDay: this.todos }
+                              );
                     // Before any file changes are committed, call the updateCacheWithLocation callback to ensure
                     // the cache is properly updated with the new location.
                     updateCacheWithLocation({ file: newFile, lineNumber });

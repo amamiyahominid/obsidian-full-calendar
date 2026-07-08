@@ -143,7 +143,8 @@ function HeadingInput<T extends Partial<CalendarInfo>>({
     source,
     changeListener,
     headings,
-}: BasicProps<T> & { headings: string[] }) {
+    optional,
+}: BasicProps<T> & { headings: string[]; optional?: boolean }) {
     let sourceWithHeading = source as SourceWith<T, { heading: undefined }>;
     return (
         <div className="setting-item">
@@ -156,7 +157,7 @@ function HeadingInput<T extends Partial<CalendarInfo>>({
             <div className="setting-item-control">
                 {headings.length > 0 ? (
                     <select
-                        required
+                        required={!optional}
                         value={sourceWithHeading.heading || ""}
                         onChange={changeListener((x) => ({
                             ...sourceWithHeading,
@@ -174,7 +175,7 @@ function HeadingInput<T extends Partial<CalendarInfo>>({
                     </select>
                 ) : (
                     <input
-                        required
+                        required={!optional}
                         type="text"
                         value={sourceWithHeading.heading || ""}
                         onChange={changeListener((x) => ({
@@ -287,18 +288,28 @@ export const AddCalendarSource = ({
                     />
                 )}
                 {source.type === "dailynote" && source.todos && (
-                    <div className="setting-item">
-                        <div className="setting-item-info">
-                            <div className="setting-item-name">
-                                Daily note TODOs
-                            </div>
-                            <div className="setting-item-description">
-                                Checkbox items at the top of each daily note
-                                (above the first heading or divider) will show
-                                as all-day tasks on that note&apos;s day.
+                    <>
+                        <div className="setting-item">
+                            <div className="setting-item-info">
+                                <div className="setting-item-name">
+                                    Daily note TODOs
+                                </div>
+                                <div className="setting-item-description">
+                                    Checkbox items in each daily note show as
+                                    all-day tasks on that note&apos;s day. Reads
+                                    under the heading below, or — if left empty
+                                    — from the top of the note (above the first
+                                    heading or divider).
+                                </div>
                             </div>
                         </div>
-                    </div>
+                        <HeadingInput
+                            source={setting}
+                            changeListener={makeChangeListener}
+                            headings={headings}
+                            optional
+                        />
+                    </>
                 )}
                 {source.type === "ical" || source.type === "caldav" ? (
                     <UrlInput

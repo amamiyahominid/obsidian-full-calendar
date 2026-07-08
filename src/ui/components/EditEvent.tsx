@@ -291,15 +291,13 @@ export const EditEvent = ({
             : false
     );
 
-    // A new event (no title yet) defaults to a task; existing events keep
-    // task-ness if they carry either done-ness field (status for task notes,
-    // completed for daily-note checkbox lines).
-    const [isTask, setIsTask] = useState(
+    // Tasks are created from the kanban board (its + button seeds a
+    // status), never from the calendar — so task-ness is fixed by what the
+    // modal was opened with: a status (workflow task) or a completed field
+    // (daily-note checkbox line). No toggle.
+    const isTask =
         (initialCompleted !== undefined && initialCompleted !== null) ||
-            initialStatus !== undefined
-            ? true
-            : !(initialEvent && initialEvent.title)
-    );
+        initialStatus !== undefined;
 
     const [status, setStatus] = useState<string>(
         initialStatus || workflowStages()[0]
@@ -574,20 +572,6 @@ export const EditEvent = ({
                         </p>
                     </>
                 )}
-                {!isDailyNote && (
-                    <p>
-                        <label htmlFor="task">Task Event </label>
-                        <input
-                            id="task"
-                            checked={isTask}
-                            onChange={(e) => {
-                                setIsTask(e.target.checked);
-                            }}
-                            type="checkbox"
-                        />
-                    </p>
-                )}
-
                 {!isDailyNote && isTask && (
                     <>
                         <label htmlFor="taskStatus">Complete? </label>
