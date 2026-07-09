@@ -1,5 +1,6 @@
 import "./overrides.css";
 import { ItemView, Menu, Notice, Platform, WorkspaceLeaf } from "obsidian";
+import { DateTime } from "luxon";
 import { Calendar, EventInput, EventSourceInput } from "@fullcalendar/core";
 import { renderCalendar } from "./calendar";
 import FullCalendarPlugin from "../main";
@@ -13,6 +14,7 @@ import { UpdateViewCallback } from "src/core/EventCache";
 import DailyNoteCalendar from "src/calendars/DailyNoteCalendar";
 import {
     createSession,
+    findRunningSessions,
     firstLinktext,
     getWorklogCalendarId,
     linktextForEvent,
@@ -80,6 +82,7 @@ export class CalendarView extends ItemView {
     // onOpen() re-runs on the same view instance (e.g. activateView() calls it
     // on existing leaves), but the header action must only be added once.
     kanbanActionAdded = false;
+    growIntervalAdded = false;
 
     constructor(
         leaf: WorkspaceLeaf,
@@ -161,8 +164,32 @@ export class CalendarView extends ItemView {
      */
     private decorateSession(
         input: EventInput,
-        looks: Map<string, TaskLook>
+        looks: Map<string, TaskLook>,
+        event: OFCEvent
     ): EventInput {
+        // Running session (no endTime yet): render translucent — colors are
+        // kept, opacity returns when it's stopped — and stretch the block to
+        // "now" so it mirrors elapsed time instead of FullCalendar's fake
+        // one-hour default. A view interval keeps growing it (see onOpen).
+        if (
+            event.type === "single" &&
+            !event.allDay &&
+            event.startTime &&
+            !event.endTime
+        ) {
+            input.classNames = [
+                ...(Array.isArray(input.classNames) ? input.classNames : []),
+                "ofc-session-running",
+            ];
+            const start = DateTime.fromISO(`${event.date}T${event.startTime}`);
+            const now = DateTime.now();
+            if (start.isValid && now > start) {
+                input.end = now.toISO({
+                    includeOffset: false,
+                    suppressMilliseconds: true,
+                });
+            }
+        }
         const link = firstLinktext(input.title ?? "");
         const look = link ? looks.get(link) : undefined;
         if (!look) {
@@ -196,7 +223,7 @@ export class CalendarView extends ItemView {
                             return [];
                         }
                         return id === worklogId
-                            ? [this.decorateSession(input, looks)]
+                            ? [this.decorateSession(input, looks, e.event)]
                             : [input];
                     }),
                 editable,
@@ -473,6 +500,25 @@ export class CalendarView extends ItemView {
               })
             : null;
 
+        if (!this.growIntervalAdded) {
+            this.growIntervalAdded = true;
+            // Stretch running session blocks toward "now" once a minute so
+            // their height tracks elapsed time.
+            this.registerInterval(
+                window.setInterval(() => {
+                    const now = new Date();
+                    for (const session of findRunningSessions(this.plugin)) {
+                        const api = this.fullCalendarView?.getEventById(
+                            session.id
+                        );
+                        if (api && api.start && api.start < now) {
+                            api.setEnd(now);
+                        }
+                    }
+                }, 60 * 1000)
+            );
+        }
+
         this.registerDomEvent(this.containerEl, "mouseenter", () => {
             this.plugin.cache.revalidateRemoteCalendars();
         });
@@ -525,7 +571,11 @@ export class CalendarView extends ItemView {
                         return;
                     }
                     if (calendarId === worklogId && looks) {
-                        eventInput = this.decorateSession(eventInput, looks);
+                        eventInput = this.decorateSession(
+                            eventInput,
+                            looks,
+                            event
+                        );
                     }
                     console.debug("adding event", {
                         id,
@@ -563,7 +613,7 @@ export class CalendarView extends ItemView {
                                 return [];
                             }
                             return looks
-                                ? [this.decorateSession(input, looks)]
+                                ? [this.decorateSession(input, looks, event)]
                                 : [input];
                         }),
                     editable,
