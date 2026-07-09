@@ -51,6 +51,12 @@
     padding: var(--size-4-1) var(--size-4-3) !important;
 }
 
+/* Running work-log session (no endTime yet): translucent while the clock
+   runs — colors are inherited untouched, full opacity returns on stop. */
+.fc .ofc-session-running {
+    opacity: 0.55;
+}
+
 /* The event fill is the task status color and the border is the source color.
    A 1px border vanishes against the fill, so widen the left edge into a stripe
    that keeps the source color readable. For non-task events fill and border are
@@ -426,17 +432,33 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: transparent;
+    /* Soft tint of the card's own text color, so the button blends with
+       whatever status color the card is filled with. */
+    background-color: color-mix(in srgb, currentColor 12%, transparent);
     box-shadow: none;
-    border: 1px solid currentColor;
+    border: none;
     border-radius: var(--radius-s);
     color: inherit;
-    opacity: 0.7;
+    opacity: 0.85;
     cursor: pointer;
+    transition: background-color 0.15s ease, opacity 0.15s ease;
 }
 
 .ofc-tray-card-btn:hover {
     opacity: 1;
+    background-color: color-mix(in srgb, currentColor 22%, transparent);
+}
+
+/* While running, the stop button fills with the same green as the card's
+   running edge — one "recording" signal. */
+.ofc-tray-card-running .ofc-tray-card-btn {
+    background-color: var(--color-green);
+    color: white;
+    opacity: 1;
+}
+
+.ofc-tray-card-running .ofc-tray-card-btn:hover {
+    filter: brightness(1.1);
 }
 
 .ofc-tray-card-btn .svg-icon {
