@@ -176,7 +176,7 @@ export function renderTaskTray(
             const actual = actuals.get(linktext) ?? 0;
             const estimate = card.event.estimate ?? 0;
             const parts = [
-                session ? `● ${session.event.startTime}–` : card.event.status,
+                session ? `● ${session.event.startTime} -` : card.event.status,
                 actual > 0 || estimate > 0
                     ? `⏱ ${formatHours(actual)}${
                           estimate > 0 ? ` / ${formatHours(estimate)}` : ""
