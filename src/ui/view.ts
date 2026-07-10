@@ -11,7 +11,6 @@ import { openFileForEvent } from "./actions";
 import { launchEditModal } from "./event_modal";
 import { toggleTask } from "src/ui/tasks";
 import { UpdateViewCallback } from "src/core/EventCache";
-import DailyNoteCalendar from "src/calendars/DailyNoteCalendar";
 import {
     createSession,
     findRunningSessions,
@@ -330,12 +329,6 @@ export class CalendarView extends ItemView {
         }
         this.fullCalendarView = renderCalendar(calendarEl, sources, {
             forceNarrow: this.inSidebar,
-            // Live lookup (not a snapshot) so TODO calendars added while the
-            // view is open still get their stale rolled-over copies hidden.
-            isTodoSource: (sourceId) => {
-                const cal = this.plugin.cache.getCalendarById(sourceId);
-                return cal instanceof DailyNoteCalendar && cal.todos;
-            },
             onExternalDrop: async (info) => {
                 const title = info.event.title;
                 const start = info.event.start;

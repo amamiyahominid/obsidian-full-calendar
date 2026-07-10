@@ -46,14 +46,6 @@ interface ExtraRenderProps {
     ) => Promise<void>;
     toggleTask?: (event: EventApi, isComplete: boolean) => Promise<boolean>;
     forceNarrow?: boolean;
-    // Identifies daily-note TODO calendar sources. The daily-note template
-    // rolls unchecked TODOs forward by COPYING them into the next day's note,
-    // so only the newest note holds the live list — unchecked items from
-    // older notes are stale duplicates and get hidden. Checked items stay as
-    // history on the day they were completed. This is a live predicate, not a
-    // snapshot, so calendars added after the view opened are still
-    // recognized.
-    isTodoSource?: (sourceId: string) => boolean;
     // Fires when an external element (a task-tray card) is dropped onto the
     // calendar. FullCalendar has already added a temporary event; the handler
     // is responsible for removing it and persisting the real one.
@@ -77,7 +69,6 @@ export function renderCalendar(
         eventMouseEnter,
         openContextMenuForEvent,
         toggleTask,
-        isTodoSource,
         onExternalDrop,
     } = settings || {};
     const modifyEventCallback =
@@ -243,24 +234,6 @@ export function renderCalendar(
                 | undefined;
             if (skipDates && skipDates.length > 0 && event.start) {
                 if (skipDates.includes(localDayString(event.start))) {
-                    el.style.display = "none";
-                    return;
-                }
-            }
-            // Hide unchecked TODOs from PAST days: the plugin's rollover
-            // moves them into today's note, so anything unchecked in a past
-            // note is either mid-migration or a leftover copy from the old
-            // copy-forward template. Today's and deferred (future) TODOs
-            // show; checked TODOs stay visible as history on their day.
-            if (
-                isTodoSource &&
-                event.start &&
-                event.extendedProps.isTask &&
-                event.extendedProps.taskCompleted === false &&
-                event.source?.id &&
-                isTodoSource(event.source.id)
-            ) {
-                if (localDayString(event.start) < localDayString(new Date())) {
                     el.style.display = "none";
                     return;
                 }
