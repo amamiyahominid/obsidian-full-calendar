@@ -9,7 +9,7 @@ import { fromEventApi, toEventInput } from "./interop";
 import { renderOnboarding } from "./onboard";
 import { openFileForEvent } from "./actions";
 import { launchEditModal } from "./event_modal";
-import { isTask, toggleTask, unmakeTask } from "src/ui/tasks";
+import { toggleTask } from "src/ui/tasks";
 import { UpdateViewCallback } from "src/core/EventCache";
 import DailyNoteCalendar from "src/calendars/DailyNoteCalendar";
 import {
@@ -436,30 +436,10 @@ export class CalendarView extends ItemView {
                 }
 
                 if (this.plugin.cache.isEventEditable(e.id)) {
-                    if (!isTask(event)) {
-                        menu.addItem((item) =>
-                            item
-                                .setTitle("Turn into task")
-                                .onClick(async () => {
-                                    await this.plugin.cache.processEvent(
-                                        e.id,
-                                        (e) => toggleTask(e, false)
-                                    );
-                                })
-                        );
-                    } else {
-                        menu.addItem((item) =>
-                            item
-                                .setTitle("Remove checkbox")
-                                .onClick(async () => {
-                                    await this.plugin.cache.processEvent(
-                                        e.id,
-                                        unmakeTask
-                                    );
-                                })
-                        );
-                    }
-                    menu.addSeparator();
+                    // No "Turn into task"/"Remove checkbox" here: checkbox-ness
+                    // is structural. A checkbox on a session line would get
+                    // copied forward by the daily template's rollover, and
+                    // TODO completion is the checkbox on the event itself.
                     menu.addItem((item) =>
                         item.setTitle("Go to note").onClick(() => {
                             if (!this.plugin.cache) {
