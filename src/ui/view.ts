@@ -20,6 +20,7 @@ import {
     linktextForEvent,
 } from "src/core/worklog";
 import { renderTaskTray, TaskTray } from "./tray";
+import { pickTrayTask } from "./taskPicker";
 import { collectTaskCards, FULL_CALENDAR_KANBAN_VIEW_TYPE } from "./kanban";
 import { contrastTextColor, getStatusColor } from "./colors";
 
@@ -368,9 +369,28 @@ export class CalendarView extends ItemView {
                     }
                 }
             },
-            // No `select` handler: nothing is created from the calendar
-            // surface. Tasks come from the kanban's + / quickadd, sessions
-            // from the tray (drag or ▶), TODOs from the daily note itself.
+            // Selecting an empty range creates a session: pick a tray task,
+            // log it over the selected span. Tasks themselves still come from
+            // the kanban's + / quickadd, TODOs from the daily note itself.
+            select: async (start, end, allDay) => {
+                const linktext = await pickTrayTask(this.plugin);
+                if (!linktext) {
+                    return;
+                }
+                // A plain click selects a single slot (30 min); treat it as
+                // "start here" and keep createSession's default hour. Only a
+                // real drag pins the end to the selection.
+                const isClick =
+                    !allDay &&
+                    end.getTime() - start.getTime() <= 30 * 60 * 1000;
+                await createSession(
+                    this.plugin,
+                    `[[${linktext}]]`,
+                    start,
+                    allDay,
+                    isClick ? undefined : end
+                );
+            },
             modifyEvent: async (newEvent, oldEvent) => {
                 try {
                     const didModify = await this.plugin.cache.updateEventWithId(

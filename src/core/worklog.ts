@@ -32,14 +32,16 @@ export function getWorklogCalendarId(
 
 /**
  * Persist a work session for the given task wikilink starting at `start`.
- * Timed sessions default to one hour (clamped to midnight); all-day drops
- * (month view, all-day lane) become all-day sessions.
+ * Timed sessions run until `end` when given, else one hour (either way
+ * clamped to midnight); all-day drops (month view, all-day lane) become
+ * all-day sessions.
  */
 export async function createSession(
     plugin: FullCalendarPlugin,
     taskLink: string,
     start: Date,
-    allDay: boolean
+    allDay: boolean,
+    end?: Date
 ): Promise<boolean> {
     const calendarId = getWorklogCalendarId(plugin);
     if (!calendarId) {
@@ -60,7 +62,7 @@ export async function createSession(
             allDay: true,
         };
     } else {
-        const end = dt.plus({ hours: 1 });
+        const endDt = end ? DateTime.fromJSDate(end) : dt.plus({ hours: 1 });
         event = {
             type: "single",
             title: taskLink,
@@ -68,7 +70,8 @@ export async function createSession(
             endDate: null,
             allDay: false,
             startTime: dt.toFormat("HH:mm"),
-            endTime: end.toISODate() === date ? end.toFormat("HH:mm") : "23:59",
+            endTime:
+                endDt.toISODate() === date ? endDt.toFormat("HH:mm") : "23:59",
         };
     }
     try {
