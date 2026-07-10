@@ -206,6 +206,54 @@ export async function stopSession(
 }
 
 /**
+ * Re-open an existing session block as THE running session (any other
+ * running session is stopped first). A block on today keeps its planned
+ * startTime — clearing only endTime — unless that time is still ahead of
+ * the clock (starting early: a session can't run from the future). Blocks
+ * on other days move to today and start now; their planned time says
+ * nothing about when work actually began.
+ */
+export async function startSessionFromBlock(
+    plugin: FullCalendarPlugin,
+    id: string,
+    event: OFCEvent
+): Promise<boolean> {
+    if (event.type !== "single") {
+        return false;
+    }
+    for (const running of findRunningSessions(plugin)) {
+        if (running.id !== id) {
+            await stopSession(plugin, running);
+        }
+    }
+    const now = DateTime.now();
+    const today = now.toISODate();
+    const nowTime = now.toFormat("HH:mm");
+    const planned = !event.allDay ? event.startTime : null;
+    const startTime =
+        event.date === today && planned && planned <= nowTime
+            ? planned
+            : nowTime;
+    try {
+        const updated = await plugin.cache.updateEventWithId(id, {
+            ...event,
+            date: today,
+            endDate: null,
+            allDay: false,
+            startTime,
+            endTime: null,
+        });
+        return !!updated;
+    } catch (e) {
+        if (e instanceof Error) {
+            console.error(e);
+            new Notice(e.message);
+        }
+        return false;
+    }
+}
+
+/**
  * Start working on a task now: writes a running session line into today's
  * daily note. One thing at a time — any currently running session is stopped
  * first, so switching tasks is a single click.

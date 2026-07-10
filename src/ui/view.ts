@@ -17,6 +17,8 @@ import {
     firstLinktext,
     getWorklogCalendarId,
     linktextForEvent,
+    startSessionFromBlock,
+    stopSession,
 } from "src/core/worklog";
 import { renderTaskTray, TaskTray } from "./tray";
 import { pickTrayTask } from "./taskPicker";
@@ -433,6 +435,42 @@ export class CalendarView extends ItemView {
                     // is structural. A checkbox on a session line would get
                     // copied forward by the daily template's rollover, and
                     // TODO completion is the checkbox on the event itself.
+                    const worklogId = getWorklogCalendarId(this.plugin);
+                    if (
+                        worklogId &&
+                        e.source?.id === worklogId &&
+                        event.type === "single"
+                    ) {
+                        if (
+                            !event.allDay &&
+                            event.startTime &&
+                            !event.endTime
+                        ) {
+                            menu.addItem((item) =>
+                                item
+                                    .setTitle("Stop working")
+                                    .onClick(async () => {
+                                        await stopSession(this.plugin, {
+                                            id: e.id,
+                                            event,
+                                        });
+                                    })
+                            );
+                        } else {
+                            menu.addItem((item) =>
+                                item
+                                    .setTitle("Start working")
+                                    .onClick(async () => {
+                                        await startSessionFromBlock(
+                                            this.plugin,
+                                            e.id,
+                                            event
+                                        );
+                                    })
+                            );
+                        }
+                        menu.addSeparator();
+                    }
                     menu.addItem((item) =>
                         item.setTitle("Go to note").onClick(() => {
                             if (!this.plugin.cache) {
@@ -458,6 +496,16 @@ export class CalendarView extends ItemView {
                     });
                 }
 
+                // The right-click focuses the event element, and FullCalendar
+                // paints focused events with a dark overlay. Obsidian's Menu
+                // never takes focus, so without this the block would stay
+                // dark after the menu closes.
+                const focused = document.activeElement;
+                menu.onHide(() => {
+                    if (focused instanceof HTMLElement) {
+                        focused.blur();
+                    }
+                });
                 menu.showAtMouseEvent(mouseEvent);
             },
             toggleTask: async (e, isDone) => {
