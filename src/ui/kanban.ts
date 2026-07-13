@@ -14,6 +14,7 @@ import { actualMinutesByLinktext, linktextForEvent } from "../core/worklog";
 import { launchCreateModal, launchEditModal } from "./event_modal";
 import { FULL_CALENDAR_VIEW_TYPE } from "./view";
 import {
+    dueBadge,
     formatHours,
     isWeekString,
     sprintBucket,
@@ -520,17 +521,17 @@ export class KanbanView extends ItemView {
         }
 
         const metaEl = cardEl.createDiv({ cls: "ofc-kanban-card-meta" });
-        const date = DateTime.fromISO(event.date);
-        const dateEl = metaEl.createSpan({
-            cls: "ofc-kanban-card-date",
-            text: date.isValid ? date.toFormat("EEE, MMM d") : event.date,
-        });
-        if (
-            date.isValid &&
-            !done &&
-            date.startOf("day") < DateTime.now().startOf("day")
-        ) {
-            dateEl.addClass("ofc-kanban-card-overdue");
+        // Tasks' own `date` is retired (it never meant anything once tasks
+        // left the calendar); the date worth showing is the deadline.
+        const due = dueBadge(event.due);
+        if (due && !done) {
+            const dueEl = metaEl.createSpan({
+                cls: "ofc-kanban-card-date",
+                text: due.text,
+            });
+            if (due.urgent) {
+                dueEl.addClass("ofc-kanban-card-overdue");
+            }
         }
 
         if (this.groupBy === "sprint") {

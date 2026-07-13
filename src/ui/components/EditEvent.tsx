@@ -346,6 +346,16 @@ export const EditEvent = ({
             ? String(initialEvent.estimate)
             : ""
     );
+    // Optional deadline — an external constraint, unlike `sprint` (the week
+    // the user plans to work). Empty means none; cards render 〆 when set.
+    const [due, setDue] = useState<string>(
+        (initialEvent?.type === "single" && initialEvent.due) || ""
+    );
+
+    // Workflow tasks never render on the calendar (sessions do), so their
+    // date/time fields are meaningless — the form hides them and the writer
+    // deletes the keys. `due` is the date that matters for a task.
+    const isWorkflowTaskTarget = isTask && targetCalendar?.type === "local";
     const [link, setLink] = useState<string>(
         (initialEvent?.type === "single" && initialEvent.link) || ""
     );
@@ -429,6 +439,9 @@ export const EditEvent = ({
                                   ? undefined
                                   : null) as unknown as string | undefined,
                               sprint: sprint || null,
+                              due: (due.trim() || null) as unknown as
+                                  | string
+                                  | undefined,
                               estimate: (() => {
                                   const n = parseFloat(estimate);
                                   return isFinite(n) && n > 0 ? n : null;
@@ -499,46 +512,50 @@ export const EditEvent = ({
                         ))}
                     </select>
                 </p>
-                <p>
-                    {!isRecurring && (
-                        <input
-                            type="date"
-                            id="date"
-                            value={date}
-                            required={!isRecurring}
-                            // @ts-ignore
-                            onChange={makeChangeListener(setDate, (x) => x)}
-                        />
-                    )}
+                {!isWorkflowTaskTarget && (
+                    <p>
+                        {!isRecurring && (
+                            <input
+                                type="date"
+                                id="date"
+                                value={date}
+                                required={!isRecurring}
+                                onChange={
+                                    // @ts-ignore
+                                    makeChangeListener(setDate, (x) => x)
+                                }
+                            />
+                        )}
 
-                    {allDay ? (
-                        <></>
-                    ) : (
-                        <>
-                            <input
-                                type="time"
-                                id="startTime"
-                                value={startTime}
-                                required
-                                onChange={makeChangeListener(
-                                    setStartTime,
-                                    (x) => x
-                                )}
-                            />
-                            -
-                            <input
-                                type="time"
-                                id="endTime"
-                                value={endTime}
-                                required
-                                onChange={makeChangeListener(
-                                    setEndTime,
-                                    (x) => x
-                                )}
-                            />
-                        </>
-                    )}
-                </p>
+                        {allDay ? (
+                            <></>
+                        ) : (
+                            <>
+                                <input
+                                    type="time"
+                                    id="startTime"
+                                    value={startTime}
+                                    required
+                                    onChange={makeChangeListener(
+                                        setStartTime,
+                                        (x) => x
+                                    )}
+                                />
+                                -
+                                <input
+                                    type="time"
+                                    id="endTime"
+                                    value={endTime}
+                                    required
+                                    onChange={makeChangeListener(
+                                        setEndTime,
+                                        (x) => x
+                                    )}
+                                />
+                            </>
+                        )}
+                    </p>
+                )}
                 {isTodoTarget && isTask && (
                     <p>
                         <label htmlFor="todoComplete">Completed </label>
@@ -674,6 +691,15 @@ export const EditEvent = ({
                                     </option>
                                 ))}
                             </select>
+                        </p>
+                        <p>
+                            <label htmlFor="due">Due </label>
+                            <input
+                                id="due"
+                                type="date"
+                                value={due}
+                                onChange={makeChangeListener(setDue, (x) => x)}
+                            />
                         </p>
                         <p>
                             <label htmlFor="estimate">Estimate (min) </label>

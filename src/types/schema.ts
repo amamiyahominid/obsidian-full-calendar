@@ -105,6 +105,18 @@ export const EventSchema = z.discriminatedUnion("type", [
                     : val ?? undefined,
             z.string().nullable().optional()
         ),
+        // Optional deadline ("YYYY-MM-DD") — an external constraint, distinct
+        // from `sprint` (the week the user plans to work on it). Only present
+        // when a real deadline exists; cards render it as a 〆 badge. Same
+        // metadata-menu coercions as sprint.
+        due: z.preprocess((val) => {
+            const v = Array.isArray(val)
+                ? val.length > 0
+                    ? val[0]
+                    : undefined
+                : val ?? undefined;
+            return v instanceof Date ? v.toISOString().slice(0, 10) : v;
+        }, z.string().nullable().optional()),
         // Estimated effort in minutes. metadata-menu may write numbers as
         // strings; coerce, and drop anything non-positive. Writers use null
         // as the deletion marker, so parsed events never carry it.

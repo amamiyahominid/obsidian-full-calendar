@@ -92,3 +92,23 @@ export function formatHours(minutes: number): string {
     const hours = Math.round((minutes / 60) * 10) / 10;
     return `${hours}h`;
 }
+
+/**
+ * Deadline badge for a task card: "〆7/15", urgent when overdue or due
+ * today/tomorrow. Null when the task has no (valid) due date.
+ */
+export function dueBadge(
+    due: string | null | undefined
+): { text: string; urgent: boolean } | null {
+    if (!due) {
+        return null;
+    }
+    const d = DateTime.fromISO(due);
+    if (!d.isValid) {
+        return null;
+    }
+    const days = d
+        .startOf("day")
+        .diff(DateTime.now().startOf("day"), "days").days;
+    return { text: `〆${d.month}/${d.day}`, urgent: days <= 1 };
+}
