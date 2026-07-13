@@ -1,4 +1,4 @@
-import { setIcon } from "obsidian";
+import { App, Modal, Platform, setIcon } from "obsidian";
 import { DateTime } from "luxon";
 import { Draggable } from "@fullcalendar/interaction";
 import type FullCalendarPlugin from "../main";
@@ -149,6 +149,60 @@ function makeReorderable(
 }
 
 /**
+ * Mobile-safe label prompt. A raw inline <input> in the pane makes the iOS
+ * WebView shove the viewport up when the keyboard opens, leaving the top
+ * half of the app as a black letterbox — Obsidian's own Modal is
+ * keyboard-aware, so mobile edits go through this instead.
+ */
+class DividerLabelModal extends Modal {
+    private initial: string;
+    private resolve: (value: string | null) => void;
+    private submitted = false;
+
+    constructor(
+        app: App,
+        initial: string,
+        resolve: (value: string | null) => void
+    ) {
+        super(app);
+        this.initial = initial;
+        this.resolve = resolve;
+    }
+
+    onOpen() {
+        this.titleEl.setText("Divider label");
+        const input = this.contentEl.createEl("input", {
+            type: "text",
+            value: this.initial,
+        });
+        input.style.width = "100%";
+        const submit = () => {
+            this.submitted = true;
+            this.resolve(input.value.trim());
+            this.close();
+        };
+        input.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+                submit();
+            }
+        });
+        const row = this.contentEl.createDiv();
+        row.style.marginTop = "var(--size-4-2)";
+        row.style.textAlign = "right";
+        const ok = row.createEl("button", { text: "Save" });
+        ok.onclick = submit;
+        input.focus();
+        input.select();
+    }
+
+    onClose() {
+        if (!this.submitted) {
+            this.resolve(null);
+        }
+    }
+}
+
+/**
  * A free-label divider row: reorderable like a card, label edits in place,
  * ✕ removes it. Returns the element and an "edit now" hook so a freshly
  * added divider can open straight into naming.
@@ -171,6 +225,21 @@ function renderDivider(
     el.createDiv({ cls: "ofc-tray-divider-rule" });
 
     const beginEdit = () => {
+        if (Platform.isMobile) {
+            new DividerLabelModal(
+                plugin.app,
+                el.dataset.divider ?? "",
+                async (value) => {
+                    if (value === null) {
+                        return;
+                    }
+                    el.dataset.divider = value;
+                    labelEl.setText(value || "———");
+                    await saveOrderFromDom(plugin, listEl);
+                }
+            ).open();
+            return;
+        }
         const input = document.createElement("input");
         input.type = "text";
         input.className = "ofc-tray-divider-input";
@@ -495,9 +564,12 @@ export function renderTaskTray(
                 renderCard(listEl, item.card, item.linktext, true);
             }
         }
-        addDividerBtn.onclick = () => {
+        addDividerBtn.onclick = async () => {
             const { el: divEl, beginEdit } = renderDivider(plugin, listEl, "");
             listEl.insertBefore(divEl, listEl.firstChild);
+            // Persist before naming: a cancelled label prompt (mobile modal)
+            // must not leave a divider that evaporates on the next refresh.
+            await saveOrderFromDom(plugin, listEl);
             beginEdit();
         };
 
