@@ -59,6 +59,10 @@ export interface FullCalendarSettings {
     // Width of the task tray beside the calendar, in px. Set by dragging the
     // tray's resize handle.
     trayWidth: number;
+    // Manual tray order, keyed by sprint week ("2026-W28"). Entries are task
+    // linktexts, or divider labels prefixed with ":" (a character that can't
+    // appear in note filenames). Only the current week's key is kept.
+    trayOrder: Record<string, string[]>;
     // Workflow stages in kanban column order, with their fill colors. The
     // LAST stage counts as "done" (checked on the calendar). Renaming a
     // stage does NOT rewrite existing task notes — unknown statuses surface
@@ -89,6 +93,7 @@ export const DEFAULT_SETTINGS: FullCalendarSettings = {
         groupBy: "status",
     },
     trayWidth: 220,
+    trayOrder: {},
     statuses: DEFAULT_STATUSES,
     uncheckStatus: DEFAULT_UNCHECK_STATUS,
 };

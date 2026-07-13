@@ -143,6 +143,55 @@ export class CalendarView extends ItemView {
         });
     }
 
+    /**
+     * Move a daily-note TODO line to where it was dropped: a time slot gives
+     * it that start (keeping its previous duration, or 30 minutes), the
+     * all-day lane just changes its day. Unlike task cards, dropping a TODO
+     * moves the line itself — no session is created.
+     */
+    private async rescheduleTodo(id: string, start: Date, allDay: boolean) {
+        const cached = this.plugin.cache.getEventById(id);
+        if (!cached || cached.type !== "single") {
+            return;
+        }
+        const dt = DateTime.fromJSDate(start);
+        const date = dt.toISODate();
+        let updated;
+        if (allDay) {
+            const { startTime: _s, endTime: _e, ...rest } = cached as any;
+            updated = { ...rest, date, endDate: null, allDay: true };
+        } else {
+            let minutes = 30;
+            if (!cached.allDay && cached.startTime && cached.endTime) {
+                const s = DateTime.fromISO(
+                    `${cached.date}T${cached.startTime}`
+                );
+                const e = DateTime.fromISO(`${cached.date}T${cached.endTime}`);
+                if (s.isValid && e.isValid && e > s) {
+                    minutes = e.diff(s, "minutes").minutes;
+                }
+            }
+            const end = dt.plus({ minutes });
+            updated = {
+                ...cached,
+                date,
+                endDate: null,
+                allDay: false,
+                startTime: dt.toFormat("HH:mm"),
+                endTime:
+                    end.toISODate() === date ? end.toFormat("HH:mm") : "23:59",
+            };
+        }
+        try {
+            await this.plugin.cache.updateEventWithId(id, updated as OFCEvent);
+        } catch (e) {
+            if (e instanceof Error) {
+                console.error(e);
+                new Notice(e.message);
+            }
+        }
+    }
+
     /** Task linktext → colors, for painting session blocks like the tray. */
     private taskLooks(): Map<string, TaskLook> {
         const looks = new Map<string, TaskLook>();
@@ -335,10 +384,20 @@ export class CalendarView extends ItemView {
                 const title = info.event.title;
                 const start = info.event.start;
                 const allDay = info.event.allDay;
+                const todoId = info.event.extendedProps?.trayTodoId;
                 // Drop FullCalendar's temporary event; persisting through the
                 // cache adds the real one back via the update callback.
                 info.event.remove();
-                if (!title || !start) {
+                if (!start) {
+                    return;
+                }
+                // A TODO row from the tray reschedules the existing line;
+                // a task card stamps a new work-log session.
+                if (todoId) {
+                    await this.rescheduleTodo(todoId, start, allDay);
+                    return;
+                }
+                if (!title) {
                     return;
                 }
                 await createSession(this.plugin, title, start, allDay);
