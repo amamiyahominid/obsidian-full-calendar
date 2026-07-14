@@ -34,7 +34,9 @@ export interface FullCalendarSettings {
     };
     timeFormat24h: boolean;
     clickToCreateEventFromMonthView: boolean;
-    // Folder that is auto-registered as a "Full note" calendar source. Empty
+    // Folder auto-registered as a "Full note" calendar source. Pointed at a
+    // projects root, each direct child's tasks/ subfolder is registered
+    // instead (template skipped) — see autoTaskFolderCandidates(). Empty
     // string disables the feature.
     autoTaskFolder: string;
     // Auto-folders the user manually removed from the calendar list — never
@@ -321,9 +323,13 @@ export class FullCalendarSettingTab extends PluginSettingTab {
         new Setting(containerEl)
             .setName("Auto-managed Task Folder")
             .setDesc(
-                "Automatically register this folder as a Full note calendar. " +
-                    "Removing it from the calendar list below won't bring it back; " +
-                    "re-select it here to re-enable."
+                "Register this folder as a Full note calendar automatically. " +
+                    "Point it at a projects root and every direct child's " +
+                    "tasks/ subfolder is registered instead — new projects " +
+                    "join the calendar just by existing (template is " +
+                    "skipped). Removing one from the calendar list below " +
+                    "won't bring it back; re-select the folder here to " +
+                    "re-enable."
             )
             .addDropdown((dropdown) => {
                 dropdown.addOption("", "(None)");
@@ -335,10 +341,12 @@ export class FullCalendarSettingTab extends PluginSettingTab {
                 dropdown.onChange(async (folder) => {
                     this.plugin.settings.autoTaskFolder = folder;
                     if (folder) {
-                        // Re-selecting a folder clears any prior dismissal.
+                        // Re-selecting clears prior dismissals for the folder
+                        // and anything beneath it (per-project tasks dirs).
                         this.plugin.settings.dismissedAutoFolders =
                             this.plugin.settings.dismissedAutoFolders.filter(
-                                (p) => p !== folder
+                                (p) =>
+                                    p !== folder && !p.startsWith(folder + "/")
                             );
                         this.plugin.syncAutoTaskFolder();
                     }
@@ -483,24 +491,19 @@ export class FullCalendarSettingTab extends PluginSettingTab {
             createElement(CalendarSettings, {
                 sources: this.plugin.settings.calendarSources,
                 submit: async (settings: CalendarInfo[]) => {
-                    // If the user removed the auto-managed folder, remember the
+                    // If the user removed an auto-managed folder, remember the
                     // dismissal so it isn't re-added on next launch.
-                    const autoFolder =
-                        this.plugin.settings.autoTaskFolder?.trim();
-                    if (autoFolder) {
+                    for (const dir of this.plugin.autoTaskFolderCandidates()) {
                         const stillPresent = settings.some(
-                            (s) =>
-                                s.type === "local" && s.directory === autoFolder
+                            (s) => s.type === "local" && s.directory === dir
                         );
                         if (
                             !stillPresent &&
                             !this.plugin.settings.dismissedAutoFolders.includes(
-                                autoFolder
+                                dir
                             )
                         ) {
-                            this.plugin.settings.dismissedAutoFolders.push(
-                                autoFolder
-                            );
+                            this.plugin.settings.dismissedAutoFolders.push(dir);
                         }
                     }
                     this.plugin.settings.calendarSources = settings;

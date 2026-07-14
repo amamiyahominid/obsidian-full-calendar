@@ -122,13 +122,10 @@ export default class FullCalendarPlugin extends Plugin {
     async onload() {
         await this.loadSettings();
 
-        // Migrate existing sources to the current color palette and register
-        // the auto-task folder before the first cache build, so both land on
-        // the very first open. Persist with saveData (not saveSettings) to
+        // Migrate existing sources to the current color palette before the
+        // first cache build. Persist with saveData (not saveSettings) to
         // avoid the cache-reset Notice during startup.
-        const migrated = this.migrateSourceColors();
-        const addedAutoFolder = this.syncAutoTaskFolder();
-        if (migrated || addedAutoFolder) {
+        if (this.migrateSourceColors()) {
             await this.saveData(this.settings);
         }
 
@@ -140,6 +137,33 @@ export default class FullCalendarPlugin extends Plugin {
         // the user asks. Only the task-`actual` reconcile runs at startup.
         this.app.workspace.onLayoutReady(async () => {
             try {
+                // Auto-task folders can only be resolved once the vault
+                // index is complete — at onload the projects root still
+                // looks childless and the fallback would register the root
+                // itself instead of each project's tasks/.
+                if (this.syncAutoTaskFolder()) {
+                    await this.saveData(this.settings);
+                    this.cache.reset(this.settings.calendarSources);
+                }
+                // Auto-register task folders created later: the configured
+                // root, or any folder beneath it (a new project's tasks/
+                // joins the calendar the moment it exists). Registered here
+                // rather than at onload — the initial index fires `create`
+                // for every existing file.
+                this.registerEvent(
+                    this.app.vault.on("create", (file) => {
+                        const auto = this.settings.autoTaskFolder?.trim();
+                        if (
+                            auto &&
+                            file instanceof TFolder &&
+                            (file.path === auto ||
+                                file.path.startsWith(auto + "/")) &&
+                            this.syncAutoTaskFolder()
+                        ) {
+                            this.saveSettings();
+                        }
+                    })
+                );
                 await this.cache.populate();
                 await reconcileActuals(this);
             } catch (e) {
@@ -158,19 +182,6 @@ export default class FullCalendarPlugin extends Plugin {
         // event, find no diffs, and settle.
         this.actualsCallback = this.cache.on("update", () =>
             scheduleActualsSync(this)
-        );
-
-        // Auto-register the task folder when it is (re-)created after launch.
-        this.registerEvent(
-            this.app.vault.on("create", (file) => {
-                if (
-                    file instanceof TFolder &&
-                    file.path === this.settings.autoTaskFolder?.trim() &&
-                    this.syncAutoTaskFolder()
-                ) {
-                    this.saveSettings();
-                }
-            })
         );
 
         // Drop the auto source when its folder is deleted (a transient
@@ -412,37 +423,65 @@ export default class FullCalendarPlugin extends Plugin {
     }
 
     /**
-     * Reconcile the configured auto-task folder against the calendar sources.
-     * Adds a "local" source for the folder when it exists, isn't already
-     * registered, and hasn't been dismissed by the user. Mutates settings in
-     * place and returns whether anything changed (caller persists).
+     * Directories the auto-task-folder setting wants registered. Pointed at
+     * a projects root (e.g. "30_projects"), that is each direct child's
+     * `tasks` subfolder — new projects join the calendar just by existing.
+     * `template` is skipped by convention (same as the quickadd script).
+     * A folder with no such children falls back to the original mode:
+     * the selected folder itself is the one candidate.
      */
-    syncAutoTaskFolder(): boolean {
+    autoTaskFolderCandidates(): string[] {
         const folder = this.settings.autoTaskFolder?.trim();
         if (!folder) {
-            return false;
+            return [];
         }
-        if (this.settings.dismissedAutoFolders?.includes(folder)) {
-            return false;
+        const root = this.app.vault.getAbstractFileByPath(folder);
+        if (!(root instanceof TFolder)) {
+            return [];
         }
-        const exists =
-            this.app.vault.getAbstractFileByPath(folder) instanceof TFolder;
-        if (!exists) {
-            return false;
+        const candidates: string[] = [];
+        for (const child of root.children) {
+            if (!(child instanceof TFolder) || child.name === "template") {
+                continue;
+            }
+            const tasks = this.app.vault.getAbstractFileByPath(
+                `${child.path}/tasks`
+            );
+            if (tasks instanceof TFolder) {
+                candidates.push(tasks.path);
+            }
         }
-        const alreadyRegistered = this.settings.calendarSources.some(
-            (s) => s.type === "local" && s.directory === folder
-        );
-        if (alreadyRegistered) {
-            return false;
+        return candidates.length > 0 ? candidates : [folder];
+    }
+
+    /**
+     * Reconcile the auto-task folder(s) against the calendar sources: every
+     * candidate that exists, isn't registered, and hasn't been dismissed by
+     * the user gets a "local" source with the next palette color. Mutates
+     * settings in place and returns whether anything changed (caller
+     * persists).
+     */
+    syncAutoTaskFolder(): boolean {
+        let changed = false;
+        for (const dir of this.autoTaskFolderCandidates()) {
+            if (this.settings.dismissedAutoFolders?.includes(dir)) {
+                continue;
+            }
+            const alreadyRegistered = this.settings.calendarSources.some(
+                (s) => s.type === "local" && s.directory === dir
+            );
+            if (alreadyRegistered) {
+                continue;
+            }
+            this.settings.calendarSources.push({
+                type: "local",
+                directory: dir,
+                color: nextSourceColor(
+                    this.settings.calendarSources.map((s) => s.color)
+                ),
+            });
+            changed = true;
         }
-        this.settings.calendarSources.push({
-            type: "local",
-            directory: folder,
-            color: nextSourceColor(
-                this.settings.calendarSources.map((s) => s.color)
-            ),
-        });
-        return true;
+        return changed;
     }
 }
