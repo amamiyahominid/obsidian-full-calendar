@@ -509,25 +509,13 @@
     justify-content: space-between;
 }
 
-/* Grab here to reorder; grab the card body to drag onto the calendar. */
-.ofc-tray-handle {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    margin-left: calc(var(--size-2-2) * -1);
-    color: inherit;
-    opacity: 0.35;
-    cursor: grab;
-    touch-action: none;
-}
-
-.ofc-tray-handle:hover {
-    opacity: 0.9;
-}
-
-.ofc-tray-handle .svg-icon {
-    width: 12px;
-    height: 12px;
+/* One drag, two meanings: inside the tray the card reorders; once the
+   pointer crosses into the calendar, FullCalendar's external drag (running
+   in parallel) takes over. Its mirror is noise during a reorder — hide it
+   until the pointer actually leaves the tray. */
+body.ofc-tray-reorder-active .fc-event-mirror,
+body.ofc-tray-reorder-active .fc-event-dragging {
+    display: none !important;
 }
 
 .ofc-tray-reordering {

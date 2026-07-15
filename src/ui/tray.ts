@@ -1,4 +1,4 @@
-import { setIcon } from "obsidian";
+import { Platform, setIcon } from "obsidian";
 import { DateTime } from "luxon";
 import { Draggable } from "@fullcalendar/interaction";
 import type FullCalendarPlugin from "../main";
@@ -11,7 +11,7 @@ import {
     contrastTextColor,
     getStatusColor,
     isDoneStatus,
-    isTrayGrouped,
+    trayCollapsedByDefault,
     workflowStages,
 } from "./colors";
 import DailyNoteCalendar from "../calendars/DailyNoteCalendar";
@@ -27,14 +27,13 @@ import {
 import { formatHours } from "./sprint";
 
 /*
- * Task tray: THE work list next to the calendar. The working set sits on top
- * in a manually draggable order; late-stage cards (Review, Done, …) collapse
- * automatically into labeled status groups below it — grouping is derived
- * from status, ordering is the user's intent. Under that, the open TODOs
- * from daily notes. Tasks are "stamps" — dragging one onto the calendar
- * doesn't move the task, it creates a work-log session at the drop position
- * (see core/worklog.ts); dragging a TODO onto the calendar reschedules the
- * TODO line itself.
+ * Task tray: THE work list next to the calendar. Cards live in status
+ * groups (stage order, collapsible; late stages start tucked away), and
+ * keep a manual order within their group. One drag gesture on the card
+ * body does both jobs: moving inside the tray reorders, crossing into the
+ * calendar stamps a work-log session at the drop position (the task itself
+ * never moves — see core/worklog.ts). Dragging a TODO onto the calendar
+ * reschedules the TODO line itself.
  */
 
 export type TaskTray = { refresh: () => void; destroy: () => void };
@@ -42,11 +41,9 @@ export type TaskTray = { refresh: () => void; destroy: () => void };
 const cardDone = (c: Card): boolean => isDoneStatus(c.event.status);
 
 /**
- * Interleave the saved manual order with this refresh's working-set cards.
- * Entries whose card is gone (finished, moved to a grouped status, other
- * sprint) are dropped; cards the order doesn't know yet append at the end.
- * ":"-prefixed entries are leftovers from the retired divider feature and
- * are skipped.
+ * Arrange a group's cards by the saved manual order; cards the order
+ * doesn't know yet append at the end. ":"-prefixed entries are leftovers
+ * from the retired divider feature and are skipped.
  */
 function arrangeCards(
     entries: string[],
@@ -71,68 +68,123 @@ function arrangeCards(
 }
 
 /**
- * Persist whatever sequence the sortable list currently shows. Only the
- * current week's key is kept — the order is a per-sprint artifact.
+ * Persist the manual order: every card currently visible in a group body,
+ * in DOM order, then the previously saved entries that aren't visible right
+ * now (cards inside collapsed groups keep their relative order). One flat
+ * list per sprint week — groups filter it down to their own members.
  */
-async function saveOrderFromDom(
+async function saveOrderFromTray(
     plugin: FullCalendarPlugin,
-    listEl: HTMLElement
+    trayEl: HTMLElement
 ): Promise<void> {
     const entries: string[] = [];
-    for (const child of Array.from(listEl.children) as HTMLElement[]) {
-        if (child.dataset.linktext) {
-            entries.push(child.dataset.linktext);
+    for (const cardEl of Array.from(
+        trayEl.querySelectorAll(".ofc-tray-group-body .ofc-tray-card")
+    ) as HTMLElement[]) {
+        if (cardEl.dataset.linktext) {
+            entries.push(cardEl.dataset.linktext);
         }
     }
-    plugin.settings.trayOrder = { [weekOf(0)]: entries };
+    const week = weekOf(0);
+    const seen = new Set(entries);
+    for (const old of plugin.settings.trayOrder?.[week] ?? []) {
+        if (!old.startsWith(":") && !seen.has(old)) {
+            entries.push(old);
+        }
+    }
+    plugin.settings.trayOrder = { [week]: entries };
     await plugin.saveTrayOrder();
 }
 
 /**
- * Make `itemEl` vertically draggable within `listEl` by its handle. The
- * handle swallows pointerdown so FullCalendar's external-drag (attached to
- * the whole card) never sees it — grab the handle to reorder, grab the card
- * body to drag onto the calendar. preventDefault also suppresses the
- * compatibility mouse events, so the card's click handler stays quiet.
+ * One drag gesture, two meanings: while the pointer stays inside the tray
+ * the card reorders live within its group; once it crosses out toward the
+ * calendar the card snaps back home and FullCalendar's external drag (which
+ * has been running in parallel the whole time, its mirror hidden while we
+ * reorder) takes over to stamp a session. Desktop only — on mobile a drag
+ * on the card body must keep scrolling the list.
  */
-function makeReorderable(
-    handle: HTMLElement,
-    itemEl: HTMLElement,
-    listEl: HTMLElement,
+function makeBodyReorderable(
+    cardEl: HTMLElement,
+    groupBody: HTMLElement,
+    trayEl: HTMLElement,
     onDrop: () => Promise<void>
 ): void {
-    handle.addEventListener("pointerdown", (ev) => {
-        ev.preventDefault();
-        ev.stopPropagation();
+    if (Platform.isMobile) {
+        return;
+    }
+    cardEl.addEventListener("pointerdown", (ev) => {
+        // Checkbox and ▶ clicks are actions, not drags.
+        if ((ev.target as HTMLElement).closest("input, button")) {
+            return;
+        }
+        const startX = ev.clientX;
         const startY = ev.clientY;
-        let dragging = false;
+        const homeNext = cardEl.nextSibling;
+        let reordering = false;
+        let moved = false;
+
+        const insideTray = (e: PointerEvent) => {
+            const r = trayEl.getBoundingClientRect();
+            return (
+                e.clientX >= r.left &&
+                e.clientX <= r.right &&
+                e.clientY >= r.top &&
+                e.clientY <= r.bottom
+            );
+        };
+        const enterReorder = () => {
+            reordering = true;
+            cardEl.addClass("ofc-tray-reordering");
+            document.body.addClass("ofc-tray-reorder-active");
+        };
+        const leaveReorder = (goHome: boolean) => {
+            reordering = false;
+            cardEl.removeClass("ofc-tray-reordering");
+            document.body.removeClass("ofc-tray-reorder-active");
+            if (goHome) {
+                groupBody.insertBefore(cardEl, homeNext);
+            }
+        };
+
         const onMove = (e: PointerEvent) => {
-            if (!dragging) {
-                if (Math.abs(e.clientY - startY) < 4) {
+            if (!moved) {
+                if (
+                    Math.abs(e.clientX - startX) < 5 &&
+                    Math.abs(e.clientY - startY) < 5
+                ) {
                     return;
                 }
-                dragging = true;
-                itemEl.addClass("ofc-tray-reordering");
+                moved = true;
             }
-            const siblings = (
-                Array.from(listEl.children) as HTMLElement[]
-            ).filter((c) => c !== itemEl);
-            let before: HTMLElement | null = null;
-            for (const sib of siblings) {
-                const r = sib.getBoundingClientRect();
-                if (e.clientY < r.top + r.height / 2) {
-                    before = sib;
-                    break;
+            if (insideTray(e)) {
+                if (!reordering) {
+                    enterReorder();
                 }
+                const siblings = (
+                    Array.from(groupBody.children) as HTMLElement[]
+                ).filter((c) => c !== cardEl);
+                let before: HTMLElement | null = null;
+                for (const sib of siblings) {
+                    const r = sib.getBoundingClientRect();
+                    if (e.clientY < r.top + r.height / 2) {
+                        before = sib;
+                        break;
+                    }
+                }
+                groupBody.insertBefore(cardEl, before);
+            } else if (reordering) {
+                // Crossed out toward the calendar: undo the reorder and let
+                // FullCalendar's mirror carry the drag from here.
+                leaveReorder(true);
             }
-            listEl.insertBefore(itemEl, before);
         };
         const onUp = async () => {
             document.removeEventListener("pointermove", onMove);
             document.removeEventListener("pointerup", onUp);
             document.removeEventListener("pointercancel", onUp);
-            if (dragging) {
-                itemEl.removeClass("ofc-tray-reordering");
+            if (reordering) {
+                leaveReorder(false);
                 await onDrop();
             }
         };
@@ -140,11 +192,6 @@ function makeReorderable(
         document.addEventListener("pointerup", onUp);
         document.addEventListener("pointercancel", onUp);
     });
-    // FullCalendar's Draggable may bind mouse/touch events directly on
-    // platforms without pointer events; keep those away from the handle too.
-    for (const type of ["mousedown", "touchstart"]) {
-        handle.addEventListener(type, (ev) => ev.stopPropagation());
-    }
 }
 
 /**
@@ -168,7 +215,7 @@ export function trayCards(
         return done && bucket === null && (isSticky?.(c) ?? false);
     });
     // Done sinks last — the task picker (and any other consumer) reads this
-    // order directly; the tray itself re-arranges by manual order + groups.
+    // order directly; the tray itself re-arranges by groups + manual order.
     return cards.sort((a, b) => Number(cardDone(a)) - Number(cardDone(b)));
 }
 
@@ -295,8 +342,7 @@ export function renderTaskTray(
         const renderCard = (
             parent: HTMLElement,
             card: Card,
-            linktext: string,
-            reorderable: boolean
+            linktext: string
         ) => {
             const session = runningByLink.get(linktext);
             const done = cardDone(card);
@@ -311,14 +357,9 @@ export function renderTaskTray(
                 cardEl.addClass("ofc-tray-card-done");
             }
             cardEl.dataset.linktext = linktext;
-
-            if (reorderable) {
-                const handle = cardEl.createDiv({ cls: "ofc-tray-handle" });
-                setIcon(handle, "grip-vertical");
-                makeReorderable(handle, cardEl, parent, () =>
-                    saveOrderFromDom(plugin, parent)
-                );
-            }
+            makeBodyReorderable(cardEl, parent, el, () =>
+                saveOrderFromTray(plugin, el)
+            );
 
             // Match the calendar's event rendering (see toEventInput): fill
             // by workflow status, frame in the source calendar's color.
@@ -355,7 +396,7 @@ export function renderTaskTray(
             const actual = actuals.get(linktext) ?? 0;
             const estimate = card.event.estimate ?? 0;
             const parts = [
-                session ? `● ${session.event.startTime} -` : card.event.status,
+                session ? `● ${session.event.startTime} -` : null,
                 actual > 0 || estimate > 0
                     ? `⏱ ${formatHours(actual)}${
                           estimate > 0 ? ` / ${formatHours(estimate)}` : ""
@@ -410,35 +451,30 @@ export function renderTaskTray(
             });
         };
 
-        // --- Working set: statuses that don't group, in the manual order.
-        const byLink = new Map<string, Card>();
-        for (const c of cards) {
-            if (isTrayGrouped(c.event.status)) {
-                continue;
-            }
-            const link = linktextForEvent(plugin, c.id);
-            if (link) {
-                byLink.set(link, c);
-            }
-        }
+        // --- Status groups: every stage in kanban order, then any
+        // off-registry statuses so no card can hide. Within a group, cards
+        // follow the manual order. Late stages start collapsed.
+        const stages = workflowStages();
+        const extras = [
+            ...new Set(
+                cards
+                    .map((c) => c.event.status)
+                    .filter(
+                        (s): s is string =>
+                            s !== undefined && !stages.includes(s)
+                    )
+            ),
+        ].sort();
         const entries = plugin.settings.trayOrder?.[weekOf(0)] ?? [];
-        const listEl = el.createDiv({ cls: "ofc-tray-list" });
-        for (const item of arrangeCards(entries, byLink)) {
-            renderCard(listEl, item.card, item.linktext, true);
-        }
 
-        // --- Status groups: grouping is derived from status (the thing the
-        // user was hand-simulating with dividers), ordering stays manual
-        // above. Collapsed by default; expansion persists.
-        for (const stage of workflowStages()) {
-            if (!isTrayGrouped(stage)) {
-                continue;
-            }
+        for (const stage of [...stages, ...extras]) {
             const groupCards = cards.filter((c) => c.event.status === stage);
             if (groupCards.length === 0) {
                 continue;
             }
-            const expanded = plugin.settings.trayExpanded?.[stage] === true;
+            const expanded =
+                plugin.settings.trayExpanded?.[stage] ??
+                !trayCollapsedByDefault(stage);
             const header = el.createDiv({ cls: "ofc-tray-group" });
             const chevron = header.createSpan({
                 cls: "ofc-tray-group-chevron",
@@ -466,11 +502,15 @@ export function renderTaskTray(
             };
             if (expanded) {
                 const body = el.createDiv({ cls: "ofc-tray-group-body" });
-                for (const card of groupCards) {
-                    const linktext = linktextForEvent(plugin, card.id);
-                    if (linktext) {
-                        renderCard(body, card, linktext, false);
+                const byLink = new Map<string, Card>();
+                for (const c of groupCards) {
+                    const link = linktextForEvent(plugin, c.id);
+                    if (link) {
+                        byLink.set(link, c);
                     }
+                }
+                for (const item of arrangeCards(entries, byLink)) {
+                    renderCard(body, item.card, item.linktext);
                 }
             }
         }

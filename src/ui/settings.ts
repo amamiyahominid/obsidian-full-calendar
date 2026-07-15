@@ -429,9 +429,8 @@ export class FullCalendarSettingTab extends PluginSettingTab {
                 const isLast = idx === this.plugin.settings.statuses.length - 1;
                 toggle
                     .setTooltip(
-                        "Group in tray: collapse these cards into a labeled " +
-                            "section under the working list (the last stage " +
-                            "always groups)"
+                        "Tuck away in tray: this status's group starts " +
+                            "collapsed (the last stage always does)"
                     )
                     .setValue(isLast || status.trayGroup === true)
                     .setDisabled(isLast)

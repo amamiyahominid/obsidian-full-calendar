@@ -9,9 +9,8 @@
  * so their appearance is unchanged.
  */
 
-// `trayGroup`: cards of this status collapse into a labeled group under the
-// tray's working list instead of sitting in the manual order. The final
-// (done) stage always groups regardless of the flag.
+// `trayGroup`: this status's tray group starts collapsed (tucked away). The
+// final (done) stage is always collapsed by default regardless of the flag.
 export type StatusDef = { name: string; color: string; trayGroup?: boolean };
 
 // Default workflow stages, in kanban column order. Dusty pastels kept at a
@@ -48,11 +47,12 @@ export function configureStatuses(defs: StatusDef[], uncheck: string): void {
 export const workflowStages = (): string[] => statuses.map((s) => s.name);
 
 /**
- * Whether tray cards of this status collapse into a labeled group under the
- * working list. The final (done) stage always groups; other stages opt in
- * via the settings toggle.
+ * Whether this status's tray group starts COLLAPSED. Every status renders
+ * as a group; the final (done) stage and stages with the settings toggle on
+ * are tucked away by default, the rest start open. The user's expand/
+ * collapse clicks override this per status.
  */
-export function isTrayGrouped(status: string | undefined): boolean {
+export function trayCollapsedByDefault(status: string | undefined): boolean {
     if (!status) {
         return false;
     }
