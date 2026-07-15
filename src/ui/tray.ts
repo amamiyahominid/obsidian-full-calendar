@@ -1,4 +1,4 @@
-import { App, Modal, Platform, setIcon } from "obsidian";
+import { setIcon } from "obsidian";
 import { DateTime } from "luxon";
 import { Draggable } from "@fullcalendar/interaction";
 import type FullCalendarPlugin from "../main";
@@ -7,7 +7,13 @@ import { dueBadge, sprintBucket, weekOf } from "./sprint";
 import { openFileForEvent } from "./actions";
 import { launchEditModal } from "./event_modal";
 import { toggleTask } from "./tasks";
-import { contrastTextColor, getStatusColor, isDoneStatus } from "./colors";
+import {
+    contrastTextColor,
+    getStatusColor,
+    isDoneStatus,
+    isTrayGrouped,
+    workflowStages,
+} from "./colors";
 import DailyNoteCalendar from "../calendars/DailyNoteCalendar";
 import {
     actualMinutesByLinktext,
@@ -21,9 +27,11 @@ import {
 import { formatHours } from "./sprint";
 
 /*
- * Task tray: THE work list next to the calendar. Sprint tasks in a manually
- * draggable order (with free-label divider rows for grouping), then the open
- * TODOs from daily notes. Tasks are "stamps" — dragging one onto the calendar
+ * Task tray: THE work list next to the calendar. The working set sits on top
+ * in a manually draggable order; late-stage cards (Review, Done, …) collapse
+ * automatically into labeled status groups below it — grouping is derived
+ * from status, ordering is the user's intent. Under that, the open TODOs
+ * from daily notes. Tasks are "stamps" — dragging one onto the calendar
  * doesn't move the task, it creates a work-log session at the drop position
  * (see core/worklog.ts); dragging a TODO onto the calendar reschedules the
  * TODO line itself.
@@ -33,38 +41,31 @@ export type TaskTray = { refresh: () => void; destroy: () => void };
 
 const cardDone = (c: Card): boolean => isDoneStatus(c.event.status);
 
-// Manual-order entries are task linktexts; divider rows are stored as
-// ":label" — ":" can't appear in a note filename, so the two never collide.
-const DIVIDER_PREFIX = ":";
-
-type TrayItem =
-    | { kind: "card"; card: Card; linktext: string }
-    | { kind: "divider"; label: string };
-
 /**
- * Interleave the saved manual order with this refresh's unfinished cards.
- * Entries whose card is gone are dropped; cards the order doesn't know yet
- * (created since the last drag) append at the end.
+ * Interleave the saved manual order with this refresh's working-set cards.
+ * Entries whose card is gone (finished, moved to a grouped status, other
+ * sprint) are dropped; cards the order doesn't know yet append at the end.
+ * ":"-prefixed entries are leftovers from the retired divider feature and
+ * are skipped.
  */
-function arrangeItems(
+function arrangeCards(
     entries: string[],
     cardsByLink: Map<string, Card>
-): TrayItem[] {
+): { card: Card; linktext: string }[] {
     const pending = new Map(cardsByLink);
-    const items: TrayItem[] = [];
+    const items: { card: Card; linktext: string }[] = [];
     for (const entry of entries) {
-        if (entry.startsWith(DIVIDER_PREFIX)) {
-            items.push({ kind: "divider", label: entry.slice(1) });
+        if (entry.startsWith(":")) {
             continue;
         }
         const card = pending.get(entry);
         if (card) {
-            items.push({ kind: "card", card, linktext: entry });
+            items.push({ card, linktext: entry });
             pending.delete(entry);
         }
     }
     for (const [linktext, card] of pending) {
-        items.push({ kind: "card", card, linktext });
+        items.push({ card, linktext });
     }
     return items;
 }
@@ -79,9 +80,7 @@ async function saveOrderFromDom(
 ): Promise<void> {
     const entries: string[] = [];
     for (const child of Array.from(listEl.children) as HTMLElement[]) {
-        if (child.dataset.divider !== undefined) {
-            entries.push(DIVIDER_PREFIX + child.dataset.divider);
-        } else if (child.dataset.linktext) {
+        if (child.dataset.linktext) {
             entries.push(child.dataset.linktext);
         }
     }
@@ -149,136 +148,9 @@ function makeReorderable(
 }
 
 /**
- * Mobile-safe label prompt. A raw inline <input> in the pane makes the iOS
- * WebView shove the viewport up when the keyboard opens, leaving the top
- * half of the app as a black letterbox — Obsidian's own Modal is
- * keyboard-aware, so mobile edits go through this instead.
- */
-class DividerLabelModal extends Modal {
-    private initial: string;
-    private resolve: (value: string | null) => void;
-    private submitted = false;
-
-    constructor(
-        app: App,
-        initial: string,
-        resolve: (value: string | null) => void
-    ) {
-        super(app);
-        this.initial = initial;
-        this.resolve = resolve;
-    }
-
-    onOpen() {
-        this.titleEl.setText("Divider label");
-        const input = this.contentEl.createEl("input", {
-            type: "text",
-            value: this.initial,
-        });
-        input.style.width = "100%";
-        const submit = () => {
-            this.submitted = true;
-            this.resolve(input.value.trim());
-            this.close();
-        };
-        input.addEventListener("keydown", (e) => {
-            if (e.key === "Enter") {
-                submit();
-            }
-        });
-        const row = this.contentEl.createDiv();
-        row.style.marginTop = "var(--size-4-2)";
-        row.style.textAlign = "right";
-        const ok = row.createEl("button", { text: "Save" });
-        ok.onclick = submit;
-        input.focus();
-        input.select();
-    }
-
-    onClose() {
-        if (!this.submitted) {
-            this.resolve(null);
-        }
-    }
-}
-
-/**
- * A free-label divider row: reorderable like a card, label edits in place,
- * ✕ removes it. Returns the element and an "edit now" hook so a freshly
- * added divider can open straight into naming.
- */
-function renderDivider(
-    plugin: FullCalendarPlugin,
-    listEl: HTMLElement,
-    label: string
-): { el: HTMLElement; beginEdit: () => void } {
-    const el = listEl.createDiv({ cls: "ofc-tray-divider" });
-    el.dataset.divider = label;
-    const handle = el.createDiv({ cls: "ofc-tray-handle" });
-    setIcon(handle, "grip-vertical");
-    makeReorderable(handle, el, listEl, () => saveOrderFromDom(plugin, listEl));
-
-    const labelEl = el.createSpan({
-        cls: "ofc-tray-divider-label",
-        text: label || "———",
-    });
-    el.createDiv({ cls: "ofc-tray-divider-rule" });
-
-    const beginEdit = () => {
-        if (Platform.isMobile) {
-            new DividerLabelModal(
-                plugin.app,
-                el.dataset.divider ?? "",
-                async (value) => {
-                    if (value === null) {
-                        return;
-                    }
-                    el.dataset.divider = value;
-                    labelEl.setText(value || "———");
-                    await saveOrderFromDom(plugin, listEl);
-                }
-            ).open();
-            return;
-        }
-        const input = document.createElement("input");
-        input.type = "text";
-        input.className = "ofc-tray-divider-input";
-        input.value = el.dataset.divider ?? "";
-        labelEl.replaceWith(input);
-        input.focus();
-        input.select();
-        input.addEventListener("keydown", (e) => {
-            if (e.key === "Enter") {
-                input.blur();
-            } else if (e.key === "Escape") {
-                input.value = el.dataset.divider ?? "";
-                input.blur();
-            }
-        });
-        input.addEventListener("blur", async () => {
-            const v = input.value.trim();
-            el.dataset.divider = v;
-            labelEl.setText(v || "———");
-            input.replaceWith(labelEl);
-            await saveOrderFromDom(plugin, listEl);
-        });
-    };
-    labelEl.addEventListener("click", beginEdit);
-
-    const del = el.createEl("button", { cls: "ofc-tray-divider-x" });
-    setIcon(del, "x");
-    del.setAttr("aria-label", "Remove divider");
-    del.onclick = async () => {
-        el.remove();
-        await saveOrderFromDom(plugin, listEl);
-    };
-    return { el, beginEdit };
-}
-
-/**
  * This sprint's tasks, carry-overs included. Done tasks stay visible — the
  * tray doubles as an at-a-glance retrospective, and a mis-tapped checkbox
- * can be unticked — but sink below the unfinished ones. Done tasks from
+ * can be unticked — but collapse into their status group. Done tasks from
  * PAST weeks are normally hidden, EXCEPT ones `isSticky` vouches for:
  * finishing a carryover must not make its card vanish mid-session.
  */
@@ -295,6 +167,8 @@ export function trayCards(
         }
         return done && bucket === null && (isSticky?.(c) ?? false);
     });
+    // Done sinks last — the task picker (and any other consumer) reads this
+    // order directly; the tray itself re-arranges by manual order + groups.
     return cards.sort((a, b) => Number(cardDone(a)) - Number(cardDone(b)));
 }
 
@@ -387,11 +261,6 @@ export function renderTaskTray(
         el.empty();
         const headerEl = el.createDiv({ cls: "ofc-tray-header" });
         headerEl.createSpan({ text: `This week · ${weekOf(0)}` });
-        const addDividerBtn = headerEl.createEl("button", {
-            cls: "ofc-tray-add-divider",
-        });
-        setIcon(addDividerBtn, "separator-horizontal");
-        addDividerBtn.setAttr("aria-label", "Add divider");
 
         const running = findRunningSessions(plugin);
         const today = DateTime.now().toISODate();
@@ -541,11 +410,10 @@ export function renderTaskTray(
             });
         };
 
-        // --- Tasks: unfinished in manual order (dividers included), done
-        // sunk below, outside the sortable region.
+        // --- Working set: statuses that don't group, in the manual order.
         const byLink = new Map<string, Card>();
         for (const c of cards) {
-            if (cardDone(c)) {
+            if (isTrayGrouped(c.event.status)) {
                 continue;
             }
             const link = linktextForEvent(plugin, c.id);
@@ -554,29 +422,56 @@ export function renderTaskTray(
             }
         }
         const entries = plugin.settings.trayOrder?.[weekOf(0)] ?? [];
-        const items = arrangeItems(entries, byLink);
-
         const listEl = el.createDiv({ cls: "ofc-tray-list" });
-        for (const item of items) {
-            if (item.kind === "divider") {
-                renderDivider(plugin, listEl, item.label);
-            } else {
-                renderCard(listEl, item.card, item.linktext, true);
-            }
+        for (const item of arrangeCards(entries, byLink)) {
+            renderCard(listEl, item.card, item.linktext, true);
         }
-        addDividerBtn.onclick = async () => {
-            const { el: divEl, beginEdit } = renderDivider(plugin, listEl, "");
-            listEl.insertBefore(divEl, listEl.firstChild);
-            // Persist before naming: a cancelled label prompt (mobile modal)
-            // must not leave a divider that evaporates on the next refresh.
-            await saveOrderFromDom(plugin, listEl);
-            beginEdit();
-        };
 
-        for (const card of cards.filter(cardDone)) {
-            const linktext = linktextForEvent(plugin, card.id);
-            if (linktext) {
-                renderCard(el, card, linktext, false);
+        // --- Status groups: grouping is derived from status (the thing the
+        // user was hand-simulating with dividers), ordering stays manual
+        // above. Collapsed by default; expansion persists.
+        for (const stage of workflowStages()) {
+            if (!isTrayGrouped(stage)) {
+                continue;
+            }
+            const groupCards = cards.filter((c) => c.event.status === stage);
+            if (groupCards.length === 0) {
+                continue;
+            }
+            const expanded = plugin.settings.trayExpanded?.[stage] === true;
+            const header = el.createDiv({ cls: "ofc-tray-group" });
+            const chevron = header.createSpan({
+                cls: "ofc-tray-group-chevron",
+            });
+            setIcon(chevron, expanded ? "chevron-down" : "chevron-right");
+            header.createSpan({
+                cls: "ofc-tray-group-name",
+                text: stage,
+            });
+            const swatch = getStatusColor(stage);
+            if (swatch) {
+                header.style.setProperty("--ofc-group-color", swatch);
+            }
+            header.createSpan({
+                cls: "ofc-tray-group-count",
+                text: String(groupCards.length),
+            });
+            header.onclick = async () => {
+                plugin.settings.trayExpanded = {
+                    ...plugin.settings.trayExpanded,
+                    [stage]: !expanded,
+                };
+                await plugin.saveTrayOrder();
+                refresh();
+            };
+            if (expanded) {
+                const body = el.createDiv({ cls: "ofc-tray-group-body" });
+                for (const card of groupCards) {
+                    const linktext = linktextForEvent(plugin, card.id);
+                    if (linktext) {
+                        renderCard(body, card, linktext, false);
+                    }
+                }
             }
         }
 

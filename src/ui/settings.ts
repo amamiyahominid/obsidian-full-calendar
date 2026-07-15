@@ -62,9 +62,11 @@ export interface FullCalendarSettings {
     // tray's resize handle.
     trayWidth: number;
     // Manual tray order, keyed by sprint week ("2026-W28"). Entries are task
-    // linktexts, or divider labels prefixed with ":" (a character that can't
-    // appear in note filenames). Only the current week's key is kept.
+    // linktexts. Only the current week's key is kept.
     trayOrder: Record<string, string[]>;
+    // Tray status groups the user has expanded (keyed by status name).
+    // Missing means collapsed — groups exist to get cards out of the way.
+    trayExpanded: Record<string, boolean>;
     // Workflow stages in kanban column order, with their fill colors. The
     // LAST stage counts as "done" (checked on the calendar). Renaming a
     // stage does NOT rewrite existing task notes — unknown statuses surface
@@ -96,6 +98,7 @@ export const DEFAULT_SETTINGS: FullCalendarSettings = {
     },
     trayWidth: 220,
     trayOrder: {},
+    trayExpanded: {},
     statuses: DEFAULT_STATUSES,
     uncheckStatus: DEFAULT_UNCHECK_STATUS,
 };
@@ -421,6 +424,21 @@ export class FullCalendarSettingTab extends PluginSettingTab {
                     this.plugin.settings.statuses[idx].color = val;
                     await applyStatuses(false);
                 });
+            });
+            row.addToggle((toggle) => {
+                const isLast = idx === this.plugin.settings.statuses.length - 1;
+                toggle
+                    .setTooltip(
+                        "Group in tray: collapse these cards into a labeled " +
+                            "section under the working list (the last stage " +
+                            "always groups)"
+                    )
+                    .setValue(isLast || status.trayGroup === true)
+                    .setDisabled(isLast)
+                    .onChange(async (val) => {
+                        this.plugin.settings.statuses[idx].trayGroup = val;
+                        await applyStatuses(false);
+                    });
             });
             row.addExtraButton((btn) => {
                 btn.setIcon("arrow-up")

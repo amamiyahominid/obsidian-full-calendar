@@ -509,32 +509,6 @@
     justify-content: space-between;
 }
 
-.ofc-tray-add-divider {
-    flex-shrink: 0;
-    width: 22px;
-    height: 22px;
-    padding: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: none;
-    box-shadow: none;
-    border: none;
-    color: var(--text-muted);
-    opacity: 0.7;
-    cursor: pointer;
-}
-
-.ofc-tray-add-divider:hover {
-    opacity: 1;
-    background-color: var(--background-modifier-hover);
-}
-
-.ofc-tray-add-divider .svg-icon {
-    width: 14px;
-    height: 14px;
-}
-
 /* Grab here to reorder; grab the card body to drag onto the calendar. */
 .ofc-tray-handle {
     flex-shrink: 0;
@@ -561,59 +535,59 @@
     outline: 1px dashed var(--text-muted);
 }
 
-.ofc-tray-divider {
+/* Status groups: derived from workflow status, collapsed by default. */
+.ofc-tray-group {
     display: flex;
     align-items: center;
     gap: var(--size-2-2);
-    margin: var(--size-2-3) 0;
+    margin: var(--size-2-3) 0 var(--size-2-2);
+    padding: var(--size-2-1) var(--size-2-2);
+    border-radius: var(--radius-s);
     color: var(--text-muted);
+    cursor: pointer;
+    user-select: none;
 }
 
-.ofc-tray-divider-label {
+.ofc-tray-group:hover {
+    background-color: var(--background-modifier-hover);
+}
+
+.ofc-tray-group-chevron {
+    display: flex;
+    align-items: center;
     flex-shrink: 0;
-    max-width: 70%;
+}
+
+.ofc-tray-group-chevron .svg-icon {
+    width: 13px;
+    height: 13px;
+}
+
+.ofc-tray-group-name {
+    flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: var(--font-ui-smaller);
     font-weight: 600;
     letter-spacing: 0.05em;
-    cursor: text;
 }
 
-.ofc-tray-divider-rule {
-    flex: 1;
-    border-top: 1px solid var(--background-modifier-border);
-}
-
-.ofc-tray-divider-input {
-    flex: 1;
-    min-width: 0;
-    font-size: var(--font-ui-smaller);
-}
-
-.ofc-tray-divider-x {
+/* Count chip tinted with the group's status color. */
+.ofc-tray-group-count {
     flex-shrink: 0;
-    width: 18px;
-    height: 18px;
-    padding: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: none;
-    box-shadow: none;
-    border: none;
-    color: var(--text-faint);
-    cursor: pointer;
-}
-
-.ofc-tray-divider-x:hover {
+    min-width: 20px;
+    text-align: center;
+    font-size: var(--font-ui-smaller);
+    font-weight: 600;
+    border-radius: var(--radius-s);
+    padding: 0 var(--size-2-1);
+    background-color: var(--ofc-group-color, var(--background-secondary));
     color: var(--text-normal);
 }
 
-.ofc-tray-divider-x .svg-icon {
-    width: 12px;
-    height: 12px;
+.ofc-tray-group-body {
+    margin-bottom: var(--size-2-3);
 }
 
 .ofc-tray-card-due-urgent {

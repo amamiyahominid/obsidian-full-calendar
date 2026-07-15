@@ -9,7 +9,10 @@
  * so their appearance is unchanged.
  */
 
-export type StatusDef = { name: string; color: string };
+// `trayGroup`: cards of this status collapse into a labeled group under the
+// tray's working list instead of sitting in the manual order. The final
+// (done) stage always groups regardless of the flag.
+export type StatusDef = { name: string; color: string; trayGroup?: boolean };
 
 // Default workflow stages, in kanban column order. Dusty pastels kept at a
 // uniform tone (high lightness, muted saturation) so the set reads as one
@@ -20,7 +23,7 @@ export const DEFAULT_STATUSES: StatusDef[] = [
     { name: "Backlog", color: "#c9cfd8" }, // dove gray — dormant
     { name: "Ready", color: "#a6c4e2" }, // powder blue — queued
     { name: "In Progress", color: "#e6d29a" }, // wheat — active
-    { name: "Review", color: "#e6b394" }, // apricot — attention
+    { name: "Review", color: "#e6b394", trayGroup: true }, // apricot — attention
     { name: "Done", color: "#aad6b5" }, // sage — complete
 ];
 
@@ -43,6 +46,21 @@ export function configureStatuses(defs: StatusDef[], uncheck: string): void {
 
 /** Workflow stage names, in kanban column order. */
 export const workflowStages = (): string[] => statuses.map((s) => s.name);
+
+/**
+ * Whether tray cards of this status collapse into a labeled group under the
+ * working list. The final (done) stage always groups; other stages opt in
+ * via the settings toggle.
+ */
+export function isTrayGrouped(status: string | undefined): boolean {
+    if (!status) {
+        return false;
+    }
+    if (isDoneStatus(status)) {
+        return true;
+    }
+    return statuses.some((s) => s.name === status && s.trayGroup === true);
+}
 
 /** Fill color for a stage; undefined for stages not in the configured set. */
 export const getStatusColor = (name: string): string | undefined =>
