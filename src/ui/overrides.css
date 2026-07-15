@@ -578,6 +578,19 @@ body.ofc-tray-reorder-active .fc-event-dragging {
     margin-bottom: var(--size-2-3);
 }
 
+/* A collapsed group being hovered as a cross-group drop target. */
+.ofc-tray-group-droptarget {
+    background-color: var(--background-modifier-hover);
+    box-shadow: inset 0 0 0 1px var(--interactive-accent);
+}
+
+/* Long-press lift needs the OS text-selection/callout out of the way. */
+.ofc-tray-card {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
 .ofc-tray-card-due-urgent {
     color: var(--color-red);
     font-weight: 600;

@@ -44,6 +44,40 @@ export type Card = {
  * excluded — their checkbox lines are day-scoped TODOs and work-log
  * sessions, not 案件, and would otherwise flood the Backlog column.
  */
+/**
+ * Set a workflow task's status — the single source of truth for done-ness.
+ * Any legacy `completed` key is dropped rather than kept in sync. Shared by
+ * the kanban's column drop and the tray's cross-group drag.
+ */
+export async function moveCardToStatus(
+    plugin: FullCalendarPlugin,
+    id: string,
+    status: string
+): Promise<void> {
+    const current = plugin.cache.getEventById(id);
+    if (
+        !current ||
+        current.type !== "single" ||
+        (current.status ?? workflowStages()[0]) === status
+    ) {
+        return;
+    }
+    try {
+        await plugin.cache.processEvent(id, (e) => {
+            if (e.type !== "single") {
+                return e;
+            }
+            const next: OFCEvent = { ...e, status, completed: null };
+            return next;
+        });
+    } catch (e) {
+        if (e instanceof Error) {
+            console.error(e);
+            new Notice(e.message);
+        }
+    }
+}
+
 export function collectTaskCards(plugin: FullCalendarPlugin): Card[] {
     const cards: Card[] = [];
     for (const source of plugin.cache.getAllEvents()) {
@@ -708,30 +742,7 @@ export class KanbanView extends ItemView {
     }
 
     private async moveCard(id: string, status: string) {
-        const current = this.plugin.cache.getEventById(id);
-        if (
-            !current ||
-            current.type !== "single" ||
-            (current.status ?? workflowStages()[0]) === status
-        ) {
-            return;
-        }
-        try {
-            await this.plugin.cache.processEvent(id, (e) => {
-                if (e.type !== "single") {
-                    return e;
-                }
-                // Status is the source of truth for workflow tasks; drop
-                // any legacy completed key rather than syncing a second copy.
-                const next: OFCEvent = { ...e, status, completed: null };
-                return next;
-            });
-        } catch (e) {
-            if (e instanceof Error) {
-                console.error(e);
-                new Notice(e.message);
-            }
-        }
+        await moveCardToStatus(this.plugin, id, status);
     }
 
     async onOpen() {

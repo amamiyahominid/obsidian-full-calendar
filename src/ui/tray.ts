@@ -2,7 +2,7 @@ import { Platform, setIcon } from "obsidian";
 import { DateTime } from "luxon";
 import { Draggable } from "@fullcalendar/interaction";
 import type FullCalendarPlugin from "../main";
-import { collectTaskCards, Card } from "./kanban";
+import { collectTaskCards, moveCardToStatus, Card } from "./kanban";
 import { dueBadge, sprintBucket, weekOf } from "./sprint";
 import { openFileForEvent } from "./actions";
 import { launchEditModal } from "./event_modal";
@@ -97,22 +97,23 @@ async function saveOrderFromTray(
 }
 
 /**
- * One drag gesture, two meanings: while the pointer stays inside the tray
- * the card reorders live within its group; once it crosses out toward the
- * calendar the card snaps back home and FullCalendar's external drag (which
- * has been running in parallel the whole time, its mirror hidden while we
- * reorder) takes over to stamp a session. Desktop only — on mobile a drag
- * on the card body must keep scrolling the list.
+ * One drag gesture, three meanings: while the pointer stays inside the
+ * tray the card reorders live — within its group, or across groups (over
+ * another group's cards inserts there; over a collapsed group's header
+ * highlights it) — and dropping in a different group changes the task's
+ * status. Crossing out toward the calendar snaps the card home and
+ * FullCalendar's external drag (running in parallel, mirror hidden while
+ * we reorder) takes over to stamp a session. Desktop lifts on movement;
+ * mobile lifts on a ~350ms long-press so plain swipes keep scrolling the
+ * list (there's no calendar handoff there — FC drags are disabled).
  */
-function makeBodyReorderable(
+function makeBodyDraggable(
     cardEl: HTMLElement,
-    groupBody: HTMLElement,
     trayEl: HTMLElement,
-    onDrop: () => Promise<void>
+    plugin: FullCalendarPlugin,
+    cardId: string,
+    ownStage: string | undefined
 ): void {
-    if (Platform.isMobile) {
-        return;
-    }
     cardEl.addEventListener("pointerdown", (ev) => {
         // Checkbox and ▶ clicks are actions, not drags.
         if ((ev.target as HTMLElement).closest("input, button")) {
@@ -120,9 +121,28 @@ function makeBodyReorderable(
         }
         const startX = ev.clientX;
         const startY = ev.clientY;
+        const homeParent = cardEl.parentElement;
         const homeNext = cardEl.nextSibling;
+        let lifted = !Platform.isMobile;
         let reordering = false;
         let moved = false;
+        let headerTarget: HTMLElement | null = null;
+
+        const liftTimer = Platform.isMobile
+            ? window.setTimeout(() => {
+                  lifted = true;
+                  enterReorder();
+              }, 350)
+            : null;
+
+        // iOS keeps scrolling unless post-lift touchmoves are cancelled,
+        // which needs a non-passive listener.
+        const onTouchMove = (e: TouchEvent) => {
+            if (lifted && reordering) {
+                e.preventDefault();
+            }
+        };
+        cardEl.addEventListener("touchmove", onTouchMove, { passive: false });
 
         const insideTray = (e: PointerEvent) => {
             const r = trayEl.getBoundingClientRect();
@@ -133,6 +153,10 @@ function makeBodyReorderable(
                 e.clientY <= r.bottom
             );
         };
+        const clearHeaderTarget = () => {
+            headerTarget?.removeClass("ofc-tray-group-droptarget");
+            headerTarget = null;
+        };
         const enterReorder = () => {
             reordering = true;
             cardEl.addClass("ofc-tray-reordering");
@@ -142,9 +166,71 @@ function makeBodyReorderable(
             reordering = false;
             cardEl.removeClass("ofc-tray-reordering");
             document.body.removeClass("ofc-tray-reorder-active");
-            if (goHome) {
-                groupBody.insertBefore(cardEl, homeNext);
+            clearHeaderTarget();
+            if (goHome && homeParent) {
+                homeParent.insertBefore(cardEl, homeNext);
             }
+        };
+
+        // Place the card where the pointer says: inside whichever group
+        // section the pointer is over. Expanded groups take the card
+        // between their cards; a collapsed group highlights its header.
+        const positionCard = (e: PointerEvent) => {
+            clearHeaderTarget();
+            type Section = {
+                header: HTMLElement;
+                body: HTMLElement | null;
+            };
+            const sections: Section[] = [];
+            for (const header of Array.from(
+                trayEl.querySelectorAll(".ofc-tray-group")
+            ) as HTMLElement[]) {
+                const next = header.nextElementSibling;
+                sections.push({
+                    header,
+                    body:
+                        next instanceof HTMLElement &&
+                        next.classList.contains("ofc-tray-group-body")
+                            ? next
+                            : null,
+                });
+            }
+            if (sections.length === 0) {
+                return;
+            }
+            let target = sections[0];
+            for (const s of sections) {
+                if (e.clientY >= s.header.getBoundingClientRect().top) {
+                    target = s;
+                }
+            }
+            if (target.body) {
+                const siblings = (
+                    Array.from(target.body.children) as HTMLElement[]
+                ).filter((c) => c !== cardEl);
+                let before: HTMLElement | null = null;
+                for (const sib of siblings) {
+                    const r = sib.getBoundingClientRect();
+                    if (e.clientY < r.top + r.height / 2) {
+                        before = sib;
+                        break;
+                    }
+                }
+                target.body.insertBefore(cardEl, before);
+            } else {
+                headerTarget = target.header;
+                headerTarget.addClass("ofc-tray-group-droptarget");
+            }
+        };
+
+        const teardown = () => {
+            if (liftTimer !== null) {
+                window.clearTimeout(liftTimer);
+            }
+            document.removeEventListener("pointermove", onMove);
+            document.removeEventListener("pointerup", onUp);
+            document.removeEventListener("pointercancel", onUp);
+            cardEl.removeEventListener("touchmove", onTouchMove);
         };
 
         const onMove = (e: PointerEvent) => {
@@ -156,23 +242,20 @@ function makeBodyReorderable(
                     return;
                 }
                 moved = true;
+                // Mobile: movement before the long-press fires is a scroll.
+                if (!lifted) {
+                    teardown();
+                    return;
+                }
             }
-            if (insideTray(e)) {
+            if (!lifted) {
+                return;
+            }
+            if (Platform.isMobile || insideTray(e)) {
                 if (!reordering) {
                     enterReorder();
                 }
-                const siblings = (
-                    Array.from(groupBody.children) as HTMLElement[]
-                ).filter((c) => c !== cardEl);
-                let before: HTMLElement | null = null;
-                for (const sib of siblings) {
-                    const r = sib.getBoundingClientRect();
-                    if (e.clientY < r.top + r.height / 2) {
-                        before = sib;
-                        break;
-                    }
-                }
-                groupBody.insertBefore(cardEl, before);
+                positionCard(e);
             } else if (reordering) {
                 // Crossed out toward the calendar: undo the reorder and let
                 // FullCalendar's mirror carry the drag from here.
@@ -180,12 +263,21 @@ function makeBodyReorderable(
             }
         };
         const onUp = async () => {
-            document.removeEventListener("pointermove", onMove);
-            document.removeEventListener("pointerup", onUp);
-            document.removeEventListener("pointercancel", onUp);
-            if (reordering) {
-                leaveReorder(false);
-                await onDrop();
+            teardown();
+            if (!reordering) {
+                clearHeaderTarget();
+                return;
+            }
+            const dropStage = headerTarget
+                ? headerTarget.dataset.stage
+                : (cardEl.closest(".ofc-tray-group-body") as HTMLElement | null)
+                      ?.dataset.stage;
+            leaveReorder(false);
+            // Persist the position first: the status write triggers a tray
+            // refresh, which must already see the card's new slot.
+            await saveOrderFromTray(plugin, trayEl);
+            if (dropStage && dropStage !== ownStage) {
+                await moveCardToStatus(plugin, cardId, dropStage);
             }
         };
         document.addEventListener("pointermove", onMove);
@@ -357,9 +449,7 @@ export function renderTaskTray(
                 cardEl.addClass("ofc-tray-card-done");
             }
             cardEl.dataset.linktext = linktext;
-            makeBodyReorderable(cardEl, parent, el, () =>
-                saveOrderFromTray(plugin, el)
-            );
+            makeBodyDraggable(cardEl, el, plugin, card.id, card.event.status);
 
             // Match the calendar's event rendering (see toEventInput): fill
             // by workflow status, frame in the source calendar's color.
@@ -476,6 +566,7 @@ export function renderTaskTray(
                 plugin.settings.trayExpanded?.[stage] ??
                 !trayCollapsedByDefault(stage);
             const header = el.createDiv({ cls: "ofc-tray-group" });
+            header.dataset.stage = stage;
             const chevron = header.createSpan({
                 cls: "ofc-tray-group-chevron",
             });
@@ -502,6 +593,7 @@ export function renderTaskTray(
             };
             if (expanded) {
                 const body = el.createDiv({ cls: "ofc-tray-group-body" });
+                body.dataset.stage = stage;
                 const byLink = new Map<string, Card>();
                 for (const c of groupCards) {
                     const link = linktextForEvent(plugin, c.id);
