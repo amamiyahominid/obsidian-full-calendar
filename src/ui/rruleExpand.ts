@@ -36,12 +36,16 @@ export function expandRRuleOccurrences(
     const minutes = dtstart.getMinutes();
     const endDate = de.toDate(fr.end);
     endDate.setHours(23, 59, 59, 999);
-    return errd.rruleSet
-        .between(de.toDate(fr.start), endDate, true)
-        .map((d: Date) => {
-            const [year, month, day] = errd.isTimeZoneSpecified
-                ? [d.getFullYear(), d.getMonth(), d.getDate()]
-                : [d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()];
-            return new Date(Date.UTC(year, month, day, hours, minutes));
-        });
+    // Look back one extra day so a cross-midnight occurrence (e.g.
+    // 22:00–08:00) that STARTS the day before the requested window still
+    // produces its morning segment inside the window. Out-of-window
+    // occurrences this admits don't intersect the view and aren't rendered.
+    const startDate = de.toDate(fr.start);
+    startDate.setDate(startDate.getDate() - 1);
+    return errd.rruleSet.between(startDate, endDate, true).map((d: Date) => {
+        const [year, month, day] = errd.isTimeZoneSpecified
+            ? [d.getFullYear(), d.getMonth(), d.getDate()]
+            : [d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()];
+        return new Date(Date.UTC(year, month, day, hours, minutes));
+    });
 }

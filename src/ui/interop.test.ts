@@ -147,6 +147,33 @@ describe("JST this-and-following split boundary", () => {
     });
 });
 
+describe("cross-midnight rrule event (Google ICS 22:00–08:00 daily)", () => {
+    const overnight = rruleEvent(
+        "Overnight",
+        "2026-07-23",
+        "22:00",
+        "08:00",
+        "DTSTART:20260723T220000\nRRULE:FREQ=DAILY"
+    );
+
+    it("wraps the negative end-minus-start into a positive next-day duration", () => {
+        const input = toEventInput("test", overnight);
+        expect(input!.duration).toBe("10:00");
+    });
+
+    it("expands the occurrence that starts the day before the window so its morning segment can render", () => {
+        // A day view of 7/24 must include the occurrence starting 7/23 22:00,
+        // whose 00:00–08:00 tail falls inside the window.
+        const days = expandDisplayedMarkers(
+            overnight,
+            marker(2026, 7, 24),
+            marker(2026, 7, 25)
+        );
+        expect(days).toContain(marker(2026, 7, 23, 22, 0));
+        expect(days).toContain(marker(2026, 7, 24, 22, 0));
+    });
+});
+
 describe("fromEventApi single-day all-day normalization", () => {
     const api = (overrides: Record<string, unknown>) =>
         ({

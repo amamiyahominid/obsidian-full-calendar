@@ -190,7 +190,14 @@ export function toEventInput(
             const startTime = parseTime(frontmatter.startTime);
             if (startTime && frontmatter.endTime) {
                 const endTime = parseTime(frontmatter.endTime);
-                const duration = endTime?.minus(startTime);
+                let duration = endTime?.minus(startTime);
+                // An end time before the start time means the occurrence
+                // crosses midnight (e.g. 22:00–08:00). A negative Duration
+                // would make toISOTime() return null and silently drop the
+                // duration, so wrap it forward a day.
+                if (duration && duration.as("minutes") < 0) {
+                    duration = duration.plus({ days: 1 });
+                }
                 if (duration) {
                     event.duration = duration.toISOTime({
                         includePrefix: false,
