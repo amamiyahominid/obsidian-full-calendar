@@ -7,7 +7,7 @@ import FullCalendarPlugin from "../main";
 import { FCError, OFCEvent, PLUGIN_SLUG } from "../types";
 import { fromEventApi, toEventInput } from "./interop";
 import { renderOnboarding } from "./onboard";
-import { openFileForEvent } from "./actions";
+import { openFileForEvent, openFileInLeaf, resolveLinkedNote } from "./actions";
 import { launchEditModal } from "./event_modal";
 import { toggleTask } from "src/ui/tasks";
 import { UpdateViewCallback } from "src/core/EventCache";
@@ -404,6 +404,20 @@ export class CalendarView extends ItemView {
             },
             eventClick: async (info) => {
                 try {
+                    // Read-only (remote/ICS) events have no local file and no
+                    // edit modal. Instead, a note can opt in to being their
+                    // landing page via fc-link-event frontmatter; events with
+                    // no declaring note do nothing.
+                    if (!this.plugin.cache.isEventEditable(info.event.id)) {
+                        const file = resolveLinkedNote(
+                            this.app,
+                            info.event.title
+                        );
+                        if (file) {
+                            await openFileInLeaf(this.app, file);
+                        }
+                        return;
+                    }
                     if (
                         info.jsEvent.getModifierState("Control") ||
                         info.jsEvent.getModifierState("Meta")
@@ -461,17 +475,27 @@ export class CalendarView extends ItemView {
 
             eventMouseEnter: async (info) => {
                 try {
-                    const location = this.plugin.cache.getInfoForEditableEvent(
-                        info.event.id
-                    ).location;
-                    if (location) {
+                    let linkpath: string | null = null;
+                    if (this.plugin.cache.isEventEditable(info.event.id)) {
+                        linkpath =
+                            this.plugin.cache.getInfoForEditableEvent(
+                                info.event.id
+                            ).location?.path ?? null;
+                    } else {
+                        // Read-only events preview their declaring note
+                        // (fc-link-event frontmatter), if one exists.
+                        linkpath =
+                            resolveLinkedNote(this.app, info.event.title)
+                                ?.path ?? null;
+                    }
+                    if (linkpath) {
                         this.app.workspace.trigger("hover-link", {
                             event: info.jsEvent,
                             source: PLUGIN_SLUG,
                             hoverParent: calendarEl,
                             targetEl: info.jsEvent.target,
-                            linktext: location.path,
-                            sourcePath: location.path,
+                            linktext: linkpath,
+                            sourcePath: linkpath,
                         });
                     }
                 } catch (e) {}
