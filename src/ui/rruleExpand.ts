@@ -12,16 +12,18 @@
  *   2. Re-pack each occurrence's calendar day with the dtstart's wall-clock
  *      time so DST shifts can't move the displayed time.
  *
- * Which fields hold an occurrence's calendar day depends on how the rrule
- * string was written (see toEventInput in interop.ts, which always emits
- * Z-suffixed datetimes today):
+ * Which fields hold an occurrence's calendar day, time and window bounds
+ * depends on how the rrule string was written:
  *   - Timezone-specified (Z) rrules produce occurrences that are REAL
- *     instants, so the calendar day must be read in the host's local zone.
- *     Reading UTC fields here shifted every event whose local time is before
- *     the UTC offset (e.g. a 07:00 JST event = 22:00Z the previous day) back
- *     by one day.
- *   - Floating rrules pack the wall clock into UTC fields, so the day must be
- *     read back out of UTC.
+ *     instants, so everything must be read in the host's local zone. Reading
+ *     UTC fields there shifted every event whose local time is before the UTC
+ *     offset (e.g. a 07:00 JST event = 22:00Z the previous day) back by a day.
+ *   - Floating rrules pack the wall clock into UTC fields, so everything must
+ *     be read back out of UTC.
+ * toEventInput now always emits FLOATING rrules (see toFloatingRRuleString in
+ * interop.ts — a Z-suffixed DTSTART made the UTC-naive rrule library evaluate
+ * BYDAY on the wrong calendar day), but the zoned branch stays correct for any
+ * Z-carrying string that reaches this expand.
  */
 export function expandRRuleOccurrences(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -31,19 +33,34 @@ export function expandRRuleOccurrences(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     de: any
 ): Date[] {
+    const zoned: boolean = errd.isTimeZoneSpecified;
     const dtstart: Date = errd.rruleSet._dtstart;
-    const hours = dtstart.getHours();
-    const minutes = dtstart.getMinutes();
-    const endDate = de.toDate(fr.end);
-    endDate.setHours(23, 59, 59, 999);
-    // Look back one extra day so a cross-midnight occurrence (e.g.
-    // 22:00–08:00) that STARTS the day before the requested window still
-    // produces its morning segment inside the window. Out-of-window
+    // The occurrence's time-of-day must be read out of the same field set as
+    // its calendar day below: a floating rruleSet holds the wall clock in its
+    // UTC fields, so reading local hours there would offset every occurrence.
+    const hours = zoned ? dtstart.getHours() : dtstart.getUTCHours();
+    const minutes = zoned ? dtstart.getMinutes() : dtstart.getUTCMinutes();
+    // Likewise for the query window: real instants are compared against real
+    // instants, floating occurrences against FullCalendar's markers (which are
+    // themselves UTC-coded local datetimes).
+    const startDate = zoned
+        ? de.toDate(fr.start)
+        : new Date(fr.start.valueOf());
+    const endDate = zoned ? de.toDate(fr.end) : new Date(fr.end.valueOf());
+    // Extend to the end of the requested day so late-in-the-day occurrences
+    // aren't dropped at a view boundary, and look back one extra day so a
+    // cross-midnight occurrence (e.g. 22:00–08:00) that STARTS the day before
+    // the window still produces its morning segment inside it. Out-of-window
     // occurrences this admits don't intersect the view and aren't rendered.
-    const startDate = de.toDate(fr.start);
-    startDate.setDate(startDate.getDate() - 1);
+    if (zoned) {
+        endDate.setHours(23, 59, 59, 999);
+        startDate.setDate(startDate.getDate() - 1);
+    } else {
+        endDate.setUTCHours(23, 59, 59, 999);
+        startDate.setUTCDate(startDate.getUTCDate() - 1);
+    }
     return errd.rruleSet.between(startDate, endDate, true).map((d: Date) => {
-        const [year, month, day] = errd.isTimeZoneSpecified
+        const [year, month, day] = zoned
             ? [d.getFullYear(), d.getMonth(), d.getDate()]
             : [d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()];
         return new Date(Date.UTC(year, month, day, hours, minutes));

@@ -174,6 +174,53 @@ describe("cross-midnight rrule event (Google ICS 22:00–08:00 daily)", () => {
     });
 });
 
+describe("BYDAY rrule from a JST feed (weekly Google event + moved override)", () => {
+    // Google emits the series as BYDAY=WE. The rrule library is UTC-naive, so
+    // a real-instant DTSTART (08:00 JST = 23:00Z the day before) made it pick
+    // the UTC Wednesday — rendering every occurrence on Thursday, right next
+    // to the RECURRENCE-ID override that legitimately moved to Thursday, and
+    // out of reach of the skipDates hiding (which keys on the original day).
+    const weekly = rruleEvent(
+        "レビュー",
+        "2026-07-29",
+        "08:00",
+        "10:00",
+        "DTSTART:20260729T080000\nRRULE:FREQ=WEEKLY;BYDAY=WE"
+    );
+
+    it("emits a floating rrule so the library reads the local wall clock", () => {
+        expect(toEventInput("test", weekly)!.rrule).toBe(
+            "DTSTART:20260729T080000\nRRULE:FREQ=WEEKLY;BYDAY=WE"
+        );
+    });
+
+    it("renders on the Wednesday, not the day after", () => {
+        const days = expandDisplayedMarkers(
+            weekly,
+            marker(2026, 7, 26),
+            marker(2026, 8, 2)
+        );
+        expect(days).toEqual([marker(2026, 7, 29, 8, 0)]);
+    });
+
+    it("keeps a monthly BYDAY rule on its nth weekday", () => {
+        // 4th Wednesday of August 2026 is the 26th.
+        const monthly = rruleEvent(
+            "Monthly review",
+            "2026-07-29",
+            "08:00",
+            "10:00",
+            "DTSTART:20260729T080000\nRRULE:FREQ=MONTHLY;BYDAY=+4WE"
+        );
+        const days = expandDisplayedMarkers(
+            monthly,
+            marker(2026, 8, 1),
+            marker(2026, 9, 1)
+        );
+        expect(days).toEqual([marker(2026, 8, 26, 8, 0)]);
+    });
+});
+
 describe("fromEventApi single-day all-day normalization", () => {
     const api = (overrides: Record<string, unknown>) =>
         ({

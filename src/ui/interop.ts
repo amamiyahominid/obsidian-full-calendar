@@ -82,6 +82,39 @@ const combineDateTimeStrings = (date: string, time: string): string | null => {
 
 const DAYS = "UMTWRFS";
 
+/**
+ * Rewrite a serialized rrule so every datetime in it is FLOATING: the local
+ * wall clock packed into UTC fields, with no `Z` anywhere.
+ *
+ * The rrule library is UTC-naive — it reads a datetime's UTC fields as the
+ * wall clock. Handing it a real instant (`DTSTART:20260728T230000Z` for an
+ * 08:00 JST event) therefore makes it evaluate the recurrence on the UTC
+ * calendar day, which for a morning JST event is the PREVIOUS day: BYDAY=WE
+ * picks the UTC Wednesday and every occurrence renders one day late locally.
+ * FREQ=DAILY rules hide this because their occurrences don't depend on the
+ * weekday/monthday of DTSTART.
+ *
+ * The `Z` matters for a second reason: @fullcalendar/rrule's
+ * `isTimeZoneSpecified` is the OR over DTSTART, EXDATE *and* UNTIL (see
+ * `analyzeRRuleString`), and that flag is what picks local- vs UTC-field
+ * reads in rruleExpand.ts. A Google "this and following" split carries
+ * `UNTIL=…Z`, so leaving it alone would keep the flag true even with a
+ * floating DTSTART. UNTIL is a real instant in ICS, so it is converted to
+ * the equivalent local wall clock rather than merely stripped.
+ */
+function toFloatingRRuleString(rrule: string): string {
+    return rrule.replace(/^(DTSTART[^:]*:\d{8}T\d{6})Z$/gm, "$1").replace(
+        /\b(UNTIL=|EXDATE:)(\d{8}T\d{6})Z/g,
+        (_match, key: string, datetime: string) =>
+            key +
+            DateTime.fromFormat(datetime, "yyyyMMdd'T'HHmmss", {
+                zone: "utc",
+            })
+                .toLocal()
+                .toFormat("yyyyMMdd'T'HHmmss")
+    );
+}
+
 export function dateEndpointsToFrontmatter(
     start: Date,
     end: Date,
@@ -148,10 +181,10 @@ export function toEventInput(
         if (dtstart === null) {
             return null;
         }
-        // For all-day rrules, anchor DTSTART at noon UTC on the start day so
-        // that hosts both east and west of UTC stay on the same calendar day.
-        // Timed events still use the local-time dtstart so the wall-clock
-        // recurrence is preserved.
+        // Both branches pack a wall clock into UTC fields (see
+        // toFloatingRRuleString): all-day rrules anchor at noon so hosts east
+        // and west of UTC stay on the same calendar day, timed rrules keep the
+        // event's own local time so the wall-clock recurrence is preserved.
         const rruleDtstart = frontmatter.allDay
             ? (() => {
                   const [year, month, day] = frontmatter.startDate
@@ -159,7 +192,16 @@ export function toEventInput(
                       .map((p) => parseInt(p, 10));
                   return new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
               })()
-            : dtstart.toJSDate();
+            : new Date(
+                  Date.UTC(
+                      dtstart.year,
+                      dtstart.month - 1,
+                      dtstart.day,
+                      dtstart.hour,
+                      dtstart.minute,
+                      dtstart.second
+                  )
+              );
 
         // NOTE: we deliberately do NOT hand the recurrence exclusions to
         // FullCalendar (neither a separate `exdate` prop nor an embedded
@@ -176,9 +218,11 @@ export function toEventInput(
             id,
             title: frontmatter.title,
             allDay: frontmatter.allDay,
-            rrule: rrulestr(frontmatter.rrule, {
-                dtstart: rruleDtstart,
-            }).toString(),
+            rrule: toFloatingRRuleString(
+                rrulestr(frontmatter.rrule, {
+                    dtstart: rruleDtstart,
+                }).toString()
+            ),
             extendedProps: {
                 isTask: false,
                 rrule: frontmatter.rrule,
@@ -208,6 +252,10 @@ export function toEventInput(
             }
         }
     } else if (frontmatter.type === "single") {
+        // Dateless cards (issues) live on the kanban, never the calendar.
+        if (!frontmatter.date) {
+            return null;
+        }
         // Checkbox display state. `status` (workflow tasks) is the source of
         // truth when present; `completed` covers daily-note checkbox lines.
         // The raw completed value rides along so fromEventApi can round-trip
