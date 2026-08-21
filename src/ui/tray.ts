@@ -311,28 +311,61 @@ export function trayCards(
     return cards.sort((a, b) => Number(cardDone(a)) - Number(cardDone(b)));
 }
 
-/** Open, day-scoped TODO lines up to today, oldest (most forgotten) first. */
+type TrayTodo = { id: string; title: string; date: string; done: boolean };
+
+// Sticky keys for TODO rows. Event IDs churn when the daily note is edited,
+// so key on what identifies the line to a human instead.
+const todoKey = (date: string, title: string) => `${date}::${title}`;
+
+/**
+ * Day-scoped TODO lines for the tray. Open ones up to today, oldest (most
+ * forgotten) first; then today's checked ones — checking a box shouldn't
+ * make the line vanish (mis-taps get unticked, and the list doubles as an
+ * at-a-glance "what got done today"). Checked TODOs from PAST days are
+ * history and stay hidden, EXCEPT ones `isSticky` vouches for: checking an
+ * old TODO must not make it disappear mid-session.
+ */
 function collectTrayTodos(
-    plugin: FullCalendarPlugin
-): { id: string; title: string; date: string }[] {
+    plugin: FullCalendarPlugin,
+    isSticky?: (key: string) => boolean
+): TrayTodo[] {
     const today = DateTime.now().toISODate();
-    const todos: { id: string; title: string; date: string }[] = [];
+    const todos: TrayTodo[] = [];
     for (const source of plugin.cache.getAllEvents()) {
         const cal = plugin.cache.getCalendarById(source.id);
         if (!(cal instanceof DailyNoteCalendar) || !cal.todos) {
             continue;
         }
         for (const { id, event } of source.events) {
-            if (event.type !== "single" || event.completed !== false) {
+            // Only checkbox lines carry a completed value; work-log sessions
+            // and plain lines don't.
+            if (
+                event.type !== "single" ||
+                event.completed === undefined ||
+                event.completed === null
+            ) {
                 continue;
             }
-            if (event.date > today) {
+            if (!event.date || event.date > today) {
                 continue;
             }
-            todos.push({ id, title: event.title, date: event.date });
+            const done = event.completed !== false;
+            if (
+                done &&
+                event.date !== today &&
+                !(isSticky?.(todoKey(event.date, event.title)) ?? false)
+            ) {
+                continue;
+            }
+            todos.push({ id, title: event.title, date: event.date, done });
         }
     }
-    return todos.sort((a, b) => a.date.localeCompare(b.date));
+    // Done sinks last, mirroring the task cards; open ones oldest first.
+    return todos.sort((a, b) =>
+        a.done !== b.done
+            ? Number(a.done) - Number(b.done)
+            : a.date.localeCompare(b.date)
+    );
 }
 
 export function renderTaskTray(
@@ -374,6 +407,10 @@ export function renderTaskTray(
     // instantly. Keyed by linktext — event IDs churn on file edits.
     const seenUnfinished = new Set<string>();
 
+    // Same idea for TODO lines: an old (pre-today) TODO shown as open must
+    // not vanish the moment it's checked. Keyed by date+title.
+    const seenOpenTodos = new Set<string>();
+
     // Click-vs-drag suppression shared by cards and TODO rows: browsers fire
     // a click after a drag; ignore it when the pointer travelled.
     const suppressDragClick = (
@@ -406,7 +443,9 @@ export function renderTaskTray(
 
         // Forgotten stops: a session still running from a previous day.
         // Stopping closes it at 23:59 of its own day; resize to fine-tune.
-        for (const stale of running.filter((r) => r.event.date < today)) {
+        for (const stale of running.filter(
+            (r) => r.event.date && r.event.date < today
+        )) {
             const row = el.createDiv({ cls: "ofc-tray-warning" });
             row.createSpan({
                 text: `⏱ ${stale.event.title} — running since ${stale.event.date}`,
@@ -541,9 +580,10 @@ export function renderTaskTray(
             });
         };
 
-        // --- Status groups: every stage in kanban order, then any
-        // off-registry statuses so no card can hide. Within a group, cards
-        // follow the manual order. Late stages start collapsed.
+        // --- Status groups: every stage in kanban order — INCLUDING empty
+        // ones, so any stage is always available as a drag-and-drop target —
+        // then any off-registry statuses so no card can hide. Within a
+        // group, cards follow the manual order. Late stages start collapsed.
         const stages = workflowStages();
         const extras = [
             ...new Set(
@@ -559,9 +599,6 @@ export function renderTaskTray(
 
         for (const stage of [...stages, ...extras]) {
             const groupCards = cards.filter((c) => c.event.status === stage);
-            if (groupCards.length === 0) {
-                continue;
-            }
             const expanded =
                 plugin.settings.trayExpanded?.[stage] ??
                 !trayCollapsedByDefault(stage);
@@ -614,24 +651,37 @@ export function renderTaskTray(
             });
         }
 
-        // --- Open TODOs from daily notes, up to today. Rolling forward is
-        // manual; this list is where forgotten ones stay visible.
-        const todos = collectTrayTodos(plugin);
+        // --- TODOs from daily notes, up to today. Rolling forward is
+        // manual; this list is where forgotten ones stay visible. Checked
+        // ones stay listed too (today's always; older ones for the session).
+        const todos = collectTrayTodos(plugin, (key) => seenOpenTodos.has(key));
+        for (const todo of todos) {
+            if (!todo.done) {
+                seenOpenTodos.add(todoKey(todo.date, todo.title));
+            }
+        }
         if (todos.length > 0) {
             el.createDiv({ cls: "ofc-tray-section", text: "TODO" });
             for (const todo of todos) {
                 const row = el.createDiv({ cls: "ofc-tray-todo" });
+                if (todo.done) {
+                    row.addClass("ofc-tray-todo-done");
+                }
                 row.dataset.todoId = todo.id;
                 row.dataset.todoTitle = todo.title;
                 const check = row.createEl("input", {
                     type: "checkbox",
                     cls: "ofc-tray-todo-check",
                 });
-                check.setAttr("aria-label", "Mark done");
+                check.checked = todo.done;
+                check.setAttr(
+                    "aria-label",
+                    todo.done ? "Mark not done" : "Mark done"
+                );
                 check.onclick = async (ev) => {
                     ev.stopPropagation();
                     await plugin.cache.processEvent(todo.id, (e) =>
-                        toggleTask(e, true)
+                        toggleTask(e, !todo.done)
                     );
                 };
                 row.createDiv({
