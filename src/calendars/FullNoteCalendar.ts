@@ -1,4 +1,5 @@
 import { TFile, TFolder, parseYaml } from "obsidian";
+import equal from "deep-equal";
 import { rrulestr } from "rrule";
 import { EventPathLocation } from "../core/EventStore";
 import { ObsidianInterface } from "../ObsidianAdapter";
@@ -9,7 +10,11 @@ const basenameFromEvent = (event: OFCEvent): string => {
     switch (event.type) {
         case undefined:
         case "single":
-            return `${event.date} ${event.title}`;
+            // Dateless workflow notes (issues) keep their title as the
+            // filename — the date prefix convention is for dated tasks only,
+            // and renaming an issue on every status change would trash its
+            // hand-written name.
+            return event.date ? `${event.date} ${event.title}` : event.title;
         case "recurring":
             return `(Every ${event.daysOfWeek.join(",")}) ${event.title}`;
         case "rrule":
@@ -197,6 +202,12 @@ export default class FullNoteCalendar extends EditableCalendar {
     }
 
     async getEventsInFile(file: TFile): Promise<EditableEventResponse[]> {
+        // Template notes carry the same frontmatter shape as real entries
+        // (e.g. `status: Backlog`) but are never events — skipped by the same
+        // convention as the auto-task folder's `template` directory.
+        if (file.basename === "template") {
+            return [];
+        }
         const metadata = this.app.getMetadata(file);
         let event = validateEvent(metadata?.frontmatter);
         if (!event) {
@@ -275,7 +286,7 @@ export default class FullNoteCalendar extends EditableCalendar {
         location: EventPathLocation,
         event: OFCEvent,
         updateCacheWithLocation: (loc: EventLocation) => void,
-        _oldEvent?: OFCEvent
+        oldEvent?: OFCEvent
     ): Promise<void> {
         const { path } = location;
         const file = this.app.getFileByPath(path);
@@ -291,8 +302,23 @@ export default class FullNoteCalendar extends EditableCalendar {
         if (file.path !== newLocation.file.path) {
             await this.app.rename(file, newLocation.file.path);
         }
+
+        // Only write the keys that actually changed (plus explicit null
+        // deletion markers). Writing the whole event would inject derived
+        // keys (`title`, `allDay`, `type`) into notes that never carried
+        // them — issues keep frontmatter to their own hand-written fields.
+        // Without the old event to diff against, fall back to a full write.
+        let modifications: Partial<OFCEvent> = event;
+        if (oldEvent) {
+            const old = oldEvent as Record<string, unknown>;
+            modifications = Object.fromEntries(
+                Object.entries(event).filter(
+                    ([k, v]) => v === null || !equal(old[k], v)
+                )
+            ) as Partial<OFCEvent>;
+        }
         await this.app.rewrite(file, (page) =>
-            modifyFrontmatterString(page, event)
+            modifyFrontmatterString(page, modifications)
         );
 
         return;

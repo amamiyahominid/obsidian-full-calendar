@@ -59,14 +59,21 @@ export const TimeSchema = z.discriminatedUnion("allDay", [
 ]);
 
 export const CommonSchema = z.object({
-    title: z.string(),
+    // Optional with an empty default: notes that don't carry a `title` key
+    // (issues, hand-written task notes) fall back to their file basename in
+    // FullNoteCalendar.getEventsInFile.
+    title: z.string().default(""),
     id: z.string().optional(),
 });
 
 export const EventSchema = z.discriminatedUnion("type", [
     z.object({
         type: z.literal("single"),
-        date: ParsedDate,
+        // Optional so dateless workflow notes (issues) validate — parseEvent
+        // rejects notes that have neither a date nor a status. A bare `date:`
+        // line parses as YAML null; collapse it to undefined like sprint.
+        // Writers set null explicitly as a deletion marker.
+        date: z.preprocess((val) => val ?? undefined, ParsedDate.optional()),
         endDate: ParsedDate.nullable().default(null),
         // `completed` is a boolean since this fork stopped persisting the
         // ISO completion timestamp (the timestamp added churn to frontmatter
@@ -183,7 +190,18 @@ export function parseEvent(obj: unknown): OFCEvent {
 
 export function validateEvent(obj: unknown): OFCEvent | null {
     try {
-        return parseEvent(obj);
+        const event = parseEvent(obj);
+        // A note without a date is only an event if it's a workflow card
+        // (status present). Anything else is a plain note that happens to
+        // live in a registered folder — don't surface it.
+        if (
+            event.type === "single" &&
+            !event.date &&
+            event.status === undefined
+        ) {
+            return null;
+        }
+        return event;
     } catch (e) {
         if (e instanceof ZodError) {
             console.debug("Parsing failed with errors", {

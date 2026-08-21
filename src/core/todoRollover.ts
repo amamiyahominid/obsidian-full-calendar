@@ -127,7 +127,7 @@ export async function rollTodosForward(
         if (event.type !== "single" || event.completed !== false) {
             continue;
         }
-        if (event.date >= today) {
+        if (!event.date || event.date >= today) {
             continue;
         }
         const loc = plugin.cache.getEventLocation(id);

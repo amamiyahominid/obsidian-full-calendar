@@ -316,6 +316,91 @@ describe("Note Calendar Tests", () => {
         expect(rewritten).toContain("status: Ready");
         expect(rewritten).toContain("date: 2022-01-01");
     });
+    it("surfaces a dateless status note (issue) with its basename as title", async () => {
+        const obsidian = makeApp(
+            MockAppBuilder.make()
+                .folder(
+                    new MockAppBuilder("events")
+                        .file(
+                            "My Issue.md",
+                            new FileBuilder().frontmatter({
+                                status: "Backlog",
+                            })
+                        )
+                        // Template notes share the frontmatter shape but are
+                        // never events.
+                        .file(
+                            "template.md",
+                            new FileBuilder().frontmatter({
+                                status: "Backlog",
+                            })
+                        )
+                        // A dateless note without a status is a plain note.
+                        .file(
+                            "notes.md",
+                            new FileBuilder().frontmatter({ tags: ["x"] })
+                        )
+                )
+                .done()
+        );
+        const calendar = new FullNoteCalendar(obsidian, color, dirName);
+        const res = await calendar.getEvents();
+        expect(res.length).toBe(1);
+        const [event, location] = res[0];
+        expect(event.title).toBe("My Issue");
+        expect(event.type === "single" && event.status).toBe("Backlog");
+        expect(event.type === "single" && event.date).toBeUndefined();
+        expect(location.file.path).toBe(join("events", "My Issue.md"));
+    });
+
+    it("keeps a dateless note's filename when its status changes", async () => {
+        const filename = "My Issue.md";
+        const obsidian = makeApp(
+            MockAppBuilder.make()
+                .folder(
+                    new MockAppBuilder("events").file(
+                        filename,
+                        new FileBuilder().frontmatter({
+                            status: "Backlog",
+                            created: "2026-07-13",
+                        })
+                    )
+                )
+                .done()
+        );
+        const calendar = new FullNoteCalendar(obsidian, color, dirName);
+        const file = obsidian.getAbstractFileByPath(
+            join("events", filename)
+        ) as TFile;
+        const [[event]] = await calendar.getEventsInFile(file);
+        const contents = await obsidian.read(file);
+
+        const mockFn = jest.fn();
+        await calendar.modifyEvent(
+            { path: join("events", filename), lineNumber: undefined },
+            // @ts-ignore
+            { ...event, status: "Done" },
+            mockFn,
+            event
+        );
+        // No date prefix convention for dateless notes — same path, no rename.
+        const newLoc = mockFn.mock.calls[0][0];
+        expect(newLoc.file.path).toBe(join("events", filename));
+        expect(obsidian.rename).not.toHaveBeenCalled();
+
+        const [, rewriteCallback] = (obsidian.rewrite as jest.Mock).mock
+            .calls[0];
+        const rewritten = rewriteCallback(contents);
+        expect(rewritten).toContain("status: Done");
+        // Unknown keys (the issue's own metadata) survive.
+        expect(rewritten).toContain("created: 2026-07-13");
+        // Derived keys must not be injected into a hand-written note.
+        expect(rewritten).not.toContain("date:");
+        expect(rewritten).not.toContain("title:");
+        expect(rewritten).not.toContain("allDay:");
+        expect(rewritten).not.toContain("type:");
+    });
+
     // it("modify an existing event with a new date", async () => {
     // 	const event: OFCEvent = {
     // 		title: "Test Event",

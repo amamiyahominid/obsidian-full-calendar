@@ -7,6 +7,7 @@ import {
     TimeSchema,
     parseEvent,
     serializeEvent,
+    validateEvent,
 } from "./schema";
 import fc from "fast-check";
 import { ZodFastCheck } from "zod-fast-check";
@@ -212,6 +213,36 @@ describe("schema parsing tests", () => {
             `);
         });
     });
+    describe("dateless workflow notes (issues)", () => {
+        it("validates with a status", () => {
+            expect(
+                validateEvent({
+                    title: "My Issue",
+                    status: "Backlog",
+                })
+            ).toMatchInlineSnapshot(`
+                {
+                  "allDay": true,
+                  "endDate": null,
+                  "status": "Backlog",
+                  "title": "My Issue",
+                  "type": "single",
+                }
+            `);
+        });
+        it("collapses a bare date: line to undefined", () => {
+            const event = validateEvent({
+                title: "My Issue",
+                date: null,
+                status: "Backlog",
+            });
+            expect(event?.type === "single" && event.date).toBeUndefined();
+        });
+        it("is rejected without a status", () => {
+            expect(validateEvent({ title: "Just a note" })).toBeNull();
+        });
+    });
+
     describe("simple recurring events", () => {
         it("recurs once per week", () => {
             expect(

@@ -29,6 +29,9 @@ export const FULL_CALENDAR_KANBAN_VIEW_TYPE = "full-calendar-kanban-view";
 // to it.
 const PLANNING_WEEKS_AHEAD = 3;
 
+// Top-level board tab: the issues folder or project tasks.
+type BoardScope = "issue" | "projects";
+// Axis within the Projects tab.
 type GroupBy = "status" | "sprint";
 
 export type Card = {
@@ -79,9 +82,16 @@ export async function moveCardToStatus(
 }
 
 export function collectTaskCards(plugin: FullCalendarPlugin): Card[] {
+    const issuesId = plugin.issuesSourceId();
     const cards: Card[] = [];
     for (const source of plugin.cache.getAllEvents()) {
         if (!source.editable || source.id.startsWith("dailynote")) {
+            continue;
+        }
+        // Issues are workflow cards too, but deliberately not tasks: they
+        // live on the kanban's Issue axis (collectIssueCards) and never mix
+        // into the task board, tray, or sprint planning.
+        if (issuesId !== null && source.id === issuesId) {
             continue;
         }
         for (const { id, event } of source.events) {
@@ -100,12 +110,43 @@ export function collectTaskCards(plugin: FullCalendarPlugin): Card[] {
         }
     }
     cards.sort((a, b) => {
-        const dateCmp = a.event.date.localeCompare(b.event.date);
+        const dateCmp = (a.event.date ?? "").localeCompare(b.event.date ?? "");
         return dateCmp !== 0
             ? dateCmp
             : a.event.title.localeCompare(b.event.title);
     });
     return cards;
+}
+
+/**
+ * Status-bearing notes from the issues folder. Same card shape as tasks so
+ * the board render path is shared, but collected separately — issues and
+ * project tasks are never shown side by side.
+ */
+export function collectIssueCards(plugin: FullCalendarPlugin): Card[] {
+    const issuesId = plugin.issuesSourceId();
+    if (issuesId === null) {
+        return [];
+    }
+    const cards: Card[] = [];
+    for (const source of plugin.cache.getAllEvents()) {
+        if (source.id !== issuesId || !source.editable) {
+            continue;
+        }
+        for (const { id, event } of source.events) {
+            if (event.type !== "single" || event.status === undefined) {
+                continue;
+            }
+            cards.push({
+                id,
+                event,
+                calendarId: source.id,
+                sourceColor: source.color,
+            });
+        }
+    }
+    // Issues carry no date; title order keeps columns stable.
+    return cards.sort((a, b) => a.event.title.localeCompare(b.event.title));
 }
 
 type Column = {
@@ -174,7 +215,27 @@ export class KanbanView extends ItemView {
     }
 
     private get groupBy(): GroupBy {
-        return this.filters.groupBy ?? "status";
+        // "issue" is a legacy value from when the board had three flat tabs;
+        // it now means scope=issue and says nothing about the Projects axis.
+        return this.filters.groupBy === "sprint" ? "sprint" : "status";
+    }
+
+    /**
+     * NEVER name this `scope`. Obsidian's workspace scope delegates every
+     * keystroke to `activeLeaf.view.scope` and calls `handleKey()` on it, so
+     * a `View.scope` holding anything but an obsidian `Scope` throws inside
+     * the global keydown handler — killing EVERY hotkey (Cmd+T, Cmd+P, ...)
+     * while this view is active.
+     */
+    private get boardScope(): BoardScope {
+        // No issues folder — the Issues tab doesn't exist to be selected.
+        if (this.plugin.issuesSourceId() === null) {
+            return "projects";
+        }
+        if (this.filters.scope) {
+            return this.filters.scope;
+        }
+        return this.filters.groupBy === "issue" ? "issue" : "projects";
     }
 
     private async setFilters(
@@ -187,11 +248,19 @@ export class KanbanView extends ItemView {
 
     /** All cards on the board, before filters. */
     private collectCards(): Card[] {
-        return collectTaskCards(this.plugin);
+        return this.boardScope === "issue"
+            ? collectIssueCards(this.plugin)
+            : collectTaskCards(this.plugin);
     }
 
     private applyFilters(cards: Card[]): Card[] {
         const { project, sprint, hideDone } = this.filters;
+        // Issues have no project or sprint — only the done toggle applies.
+        if (this.boardScope === "issue") {
+            return cards.filter(
+                (c) => !(hideDone && isDoneStatus(cardStatus(c.event)))
+            );
+        }
         // The sprint dropdown only applies on the status axis — on the sprint
         // axis the columns already partition by sprint.
         const applySprint = this.groupBy === "status";
@@ -239,6 +308,18 @@ export class KanbanView extends ItemView {
                 this.launchCreate({
                     status,
                 }),
+        }));
+    }
+
+    /**
+     * Columns for the Issue axis: the same full stage set as the status
+     * axis. Only the + button is dropped — issues are born from their
+     * template note, not from the create-event modal.
+     */
+    private buildIssueColumns(cards: Card[]): Column[] {
+        return this.buildStatusColumns(cards).map((column) => ({
+            ...column,
+            onAdd: null,
         }));
     }
 
@@ -345,7 +426,41 @@ export class KanbanView extends ItemView {
         toolbar.empty();
         const { project, sprint, hideDone } = this.filters;
 
-        // Axis toggle: status columns (workflow) vs sprint columns (planning).
+        // Top-level tabs: the issues folder vs project tasks. Only offered
+        // when an issues folder is configured — otherwise the board is
+        // projects-only and the tab row would be a single button.
+        if (this.plugin.issuesSourceId() !== null) {
+            const scopeToggle = toolbar.createDiv({
+                cls: "ofc-kanban-groupby",
+            });
+            const scopes: [BoardScope, string][] = [
+                ["issue", "Issues"],
+                ["projects", "Projects"],
+            ];
+            for (const [scope, label] of scopes) {
+                const button = scopeToggle.createEl("button", { text: label });
+                if (this.boardScope === scope) {
+                    button.addClass("ofc-kanban-groupby-active");
+                }
+                this.registerDomEvent(button, "click", () => {
+                    if (this.boardScope !== scope) {
+                        // Writing groupBy too normalizes the legacy "issue"
+                        // axis value out of saved filters.
+                        this.setFilters({ scope, groupBy: this.groupBy });
+                    }
+                });
+            }
+        }
+
+        // Project and sprint filters are meaningless for issues — the Issues
+        // tab is a single folder with no sprint field. Only Hide Done stays.
+        if (this.boardScope === "issue") {
+            this.appendHideDone(toolbar);
+            return;
+        }
+
+        // Axis toggle within Projects: status columns (workflow) vs sprint
+        // columns (planning).
         const toggle = toolbar.createDiv({ cls: "ofc-kanban-groupby" });
         const axes: [GroupBy, string][] = [
             ["status", "Status"],
@@ -424,13 +539,17 @@ export class KanbanView extends ItemView {
             });
         }
 
+        this.appendHideDone(toolbar);
+    }
+
+    private appendHideDone(toolbar: HTMLElement) {
         const hideDoneLabel = toolbar.createEl("label", {
             cls: "ofc-kanban-hide-done",
         });
         const hideDoneBox = hideDoneLabel.createEl("input", {
             type: "checkbox",
         });
-        hideDoneBox.checked = hideDone;
+        hideDoneBox.checked = this.filters.hideDone;
         hideDoneLabel.appendText(" Hide Done");
         this.registerDomEvent(hideDoneBox, "change", () => {
             this.setFilters({ hideDone: hideDoneBox.checked });
@@ -453,7 +572,9 @@ export class KanbanView extends ItemView {
         const cards = this.applyFilters(allCards);
 
         const columns =
-            this.groupBy === "sprint"
+            this.boardScope === "issue"
+                ? this.buildIssueColumns(cards)
+                : this.groupBy === "sprint"
                 ? this.buildSprintColumns(cards)
                 : this.buildStatusColumns(cards);
 
@@ -531,7 +652,11 @@ export class KanbanView extends ItemView {
             board.createDiv({
                 cls: "ofc-kanban-empty",
                 text:
-                    allCards.length === 0
+                    this.boardScope === "issue"
+                        ? allCards.length === 0
+                            ? "No issues yet. Notes in the issues folder with a status will show up here."
+                            : "No issues match the current filters."
+                        : allCards.length === 0
                         ? "No tasks yet. Give an event a status (or a checkbox) and it will show up here."
                         : "No tasks match the current filters.",
             });
@@ -568,7 +693,7 @@ export class KanbanView extends ItemView {
             }
         }
 
-        if (this.groupBy === "sprint") {
+        if (this.boardScope === "projects" && this.groupBy === "sprint") {
             // The column already says which sprint this is; the useful extra
             // context here is the workflow stage (and, in carry-over, which
             // week the card slipped from).
@@ -660,22 +785,25 @@ export class KanbanView extends ItemView {
 
         this.registerDomEvent(cardEl, "contextmenu", (ev) => {
             const menu = new Menu();
-            const week = weekOf(0);
-            if (event.sprint !== week) {
-                menu.addItem((item) =>
-                    item
-                        .setTitle(`Assign to current sprint (${week})`)
-                        .onClick(() => this.setSprint(id, week))
-                );
+            // Issues stay out of sprint planning, so no sprint items there.
+            if (this.boardScope !== "issue") {
+                const week = weekOf(0);
+                if (event.sprint !== week) {
+                    menu.addItem((item) =>
+                        item
+                            .setTitle(`Assign to current sprint (${week})`)
+                            .onClick(() => this.setSprint(id, week))
+                    );
+                }
+                if (event.sprint) {
+                    menu.addItem((item) =>
+                        item
+                            .setTitle("Remove from sprint")
+                            .onClick(() => this.setSprint(id, null))
+                    );
+                }
+                menu.addSeparator();
             }
-            if (event.sprint) {
-                menu.addItem((item) =>
-                    item
-                        .setTitle("Remove from sprint")
-                        .onClick(() => this.setSprint(id, null))
-                );
-            }
-            menu.addSeparator();
             menu.addItem((item) =>
                 item.setTitle("Go to note").onClick(() => {
                     openFileForEvent(this.plugin.cache, this.app, id);

@@ -153,11 +153,15 @@ export default class FullCalendarPlugin extends Plugin {
                 this.registerEvent(
                     this.app.vault.on("create", (file) => {
                         const auto = this.settings.autoTaskFolder?.trim();
+                        const issues = this.settings.issuesFolder?.trim();
+                        const relevant =
+                            (auto &&
+                                (file.path === auto ||
+                                    file.path.startsWith(auto + "/"))) ||
+                            (issues && file.path === issues);
                         if (
-                            auto &&
+                            relevant &&
                             file instanceof TFolder &&
-                            (file.path === auto ||
-                                file.path.startsWith(auto + "/")) &&
                             this.syncAutoTaskFolder()
                         ) {
                             this.saveSettings();
@@ -455,15 +459,41 @@ export default class FullCalendarPlugin extends Plugin {
     }
 
     /**
-     * Reconcile the auto-task folder(s) against the calendar sources: every
-     * candidate that exists, isn't registered, and hasn't been dismissed by
-     * the user gets a "local" source with the next palette color. Mutates
-     * settings in place and returns whether anything changed (caller
-     * persists).
+     * Every folder auto-registration manages: the task folder candidates
+     * plus the issues folder, when configured and present in the vault.
+     */
+    autoFolderCandidates(): string[] {
+        const candidates = this.autoTaskFolderCandidates();
+        const issues = this.settings.issuesFolder?.trim();
+        if (
+            issues &&
+            this.app.vault.getAbstractFileByPath(issues) instanceof TFolder
+        ) {
+            candidates.push(issues);
+        }
+        return candidates;
+    }
+
+    /**
+     * The calendar source id the issues folder registers under, or null when
+     * the feature is off. Card collectors use this to keep issues off the
+     * task board/tray and on the kanban's Issue axis.
+     */
+    issuesSourceId(): string | null {
+        const issues = this.settings.issuesFolder?.trim();
+        return issues ? `local::${issues}` : null;
+    }
+
+    /**
+     * Reconcile the auto-managed folders (task folders + issues folder)
+     * against the calendar sources: every candidate that exists, isn't
+     * registered, and hasn't been dismissed by the user gets a "local"
+     * source with the next palette color. Mutates settings in place and
+     * returns whether anything changed (caller persists).
      */
     syncAutoTaskFolder(): boolean {
         let changed = false;
-        for (const dir of this.autoTaskFolderCandidates()) {
+        for (const dir of this.autoFolderCandidates()) {
             if (this.settings.dismissedAutoFolders?.includes(dir)) {
                 continue;
             }

@@ -39,6 +39,11 @@ export interface FullCalendarSettings {
     // instead (template skipped) — see autoTaskFolderCandidates(). Empty
     // string disables the feature.
     autoTaskFolder: string;
+    // Folder of dateless issue notes (status-only frontmatter). Registered as
+    // a calendar source automatically like autoTaskFolder, but its cards live
+    // on the kanban's Issue axis — never mixed in with project tasks, the
+    // tray, or the sprint board. Empty string disables the feature.
+    issuesFolder: string;
     // Auto-folders the user manually removed from the calendar list — never
     // re-added automatically until they re-select the folder in settings.
     dismissedAutoFolders: string[];
@@ -48,15 +53,19 @@ export interface FullCalendarSettings {
     reminderMinutesBefore: number;
     // Kanban board filters, persisted across sessions with a light save (no
     // cache reset). `sprint` is "all" | "current" | "none" | a literal
-    // "YYYY-Www" week; `project` is a calendar ID or null for all. `groupBy`
-    // picks the board axis; it's optional because loadSettings() merges
-    // shallowly, so a data.json saved before this field existed yields a
-    // kanbanFilters object without it — readers fall back to "status".
+    // "YYYY-Www" week; `project` is a calendar ID or null for all. `scope`
+    // picks the top-level tab (project tasks vs the issues folder) and
+    // `groupBy` the axis within Projects — both survive tab switches.
+    // Optional fields because loadSettings() merges shallowly: a data.json
+    // saved before they existed yields a kanbanFilters object without them,
+    // and readers fall back to "projects"/"status". `groupBy` briefly
+    // stored "issue" as a third axis; readers treat that as scope=issue.
     kanbanFilters: {
         project: string | null;
         sprint: string;
         hideDone: boolean;
-        groupBy?: "status" | "sprint";
+        groupBy?: "status" | "sprint" | "issue";
+        scope?: "projects" | "issue";
     };
     // Width of the task tray beside the calendar, in px. Set by dragging the
     // tray's resize handle.
@@ -87,6 +96,7 @@ export const DEFAULT_SETTINGS: FullCalendarSettings = {
     timeFormat24h: false,
     clickToCreateEventFromMonthView: true,
     autoTaskFolder: "",
+    issuesFolder: "",
     dismissedAutoFolders: [],
     enableReminders: false,
     reminderMinutesBefore: 10,
@@ -95,6 +105,7 @@ export const DEFAULT_SETTINGS: FullCalendarSettings = {
         sprint: "all",
         hideDone: false,
         groupBy: "status",
+        scope: "projects",
     },
     trayWidth: 220,
     trayOrder: {},
@@ -358,6 +369,36 @@ export class FullCalendarSettingTab extends PluginSettingTab {
                 });
             });
 
+        new Setting(containerEl)
+            .setName("Issues Folder")
+            .setDesc(
+                "Register this folder's status-bearing notes as issues. " +
+                    "They get their own Issue axis on the kanban instead of " +
+                    "mixing with project tasks, and stay out of the tray and " +
+                    "sprint planning. Notes named 'template' are skipped."
+            )
+            .addDropdown((dropdown) => {
+                dropdown.addOption("", "(None)");
+                this.app.vault
+                    .getAllLoadedFiles()
+                    .filter((f) => f instanceof TFolder)
+                    .forEach((f) => dropdown.addOption(f.path, f.path));
+                dropdown.setValue(this.plugin.settings.issuesFolder || "");
+                dropdown.onChange(async (folder) => {
+                    this.plugin.settings.issuesFolder = folder;
+                    if (folder) {
+                        // Re-selecting clears a prior dismissal of the folder.
+                        this.plugin.settings.dismissedAutoFolders =
+                            this.plugin.settings.dismissedAutoFolders.filter(
+                                (p) => p !== folder
+                            );
+                        this.plugin.syncAutoTaskFolder();
+                    }
+                    await this.plugin.saveSettings();
+                    this.display();
+                });
+            });
+
         containerEl.createEl("h2", { text: "Reminders" });
         new Setting(containerEl)
             .setName("Notify before events start")
@@ -510,7 +551,7 @@ export class FullCalendarSettingTab extends PluginSettingTab {
                 submit: async (settings: CalendarInfo[]) => {
                     // If the user removed an auto-managed folder, remember the
                     // dismissal so it isn't re-added on next launch.
-                    for (const dir of this.plugin.autoTaskFolderCandidates()) {
+                    for (const dir of this.plugin.autoFolderCandidates()) {
                         const stillPresent = settings.some(
                             (s) => s.type === "local" && s.directory === dir
                         );

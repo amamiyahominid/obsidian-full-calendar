@@ -420,7 +420,11 @@ export const EditEvent = ({
                               !targetCalendar.todos;
                           return {
                               type: "single" as const,
-                              date: date || "",
+                              // Workflow cards may be dateless (issues) —
+                              // null deletes the key instead of writing an
+                              // empty `date:` line and renaming the note to
+                              // a " title" filename.
+                              date: (date || null) as unknown as string,
                               endDate: endDate || null,
                               completed:
                                   workflowTask || isWorklog
