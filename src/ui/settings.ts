@@ -44,6 +44,10 @@ export interface FullCalendarSettings {
     // on the kanban's Issue axis — never mixed in with project tasks, the
     // tray, or the sprint board. Empty string disables the feature.
     issuesFolder: string;
+    // Folder of term notes (frontmatter `start`/`end`, a table with a 手
+    // column). The term covering a selected day offers its hands in the
+    // session picker. Empty string disables the feature.
+    termFolder: string;
     // Auto-folders the user manually removed from the calendar list — never
     // re-added automatically until they re-select the folder in settings.
     dismissedAutoFolders: string[];
@@ -97,6 +101,7 @@ export const DEFAULT_SETTINGS: FullCalendarSettings = {
     clickToCreateEventFromMonthView: true,
     autoTaskFolder: "",
     issuesFolder: "",
+    termFolder: "20_journal/term",
     dismissedAutoFolders: [],
     enableReminders: false,
     reminderMinutesBefore: 10,
@@ -396,6 +401,27 @@ export class FullCalendarSettingTab extends PluginSettingTab {
                     }
                     await this.plugin.saveSettings();
                     this.display();
+                });
+            });
+
+        new Setting(containerEl)
+            .setName("Term Folder")
+            .setDesc(
+                "Term notes with start/end frontmatter and a table with a " +
+                    "手 column. Selecting an empty range on the calendar " +
+                    "offers the hands of the term covering that day, above " +
+                    "this sprint's tasks."
+            )
+            .addDropdown((dropdown) => {
+                dropdown.addOption("", "(None)");
+                this.app.vault
+                    .getAllLoadedFiles()
+                    .filter((f) => f instanceof TFolder)
+                    .forEach((f) => dropdown.addOption(f.path, f.path));
+                dropdown.setValue(this.plugin.settings.termFolder || "");
+                dropdown.onChange(async (folder) => {
+                    this.plugin.settings.termFolder = folder;
+                    await this.plugin.saveSettings();
                 });
             });
 

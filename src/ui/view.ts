@@ -441,8 +441,11 @@ export class CalendarView extends ItemView {
             // log it over the selected span. Tasks themselves still come from
             // the kanban's + / quickadd, TODOs from the daily note itself.
             select: async (start, end, allDay) => {
-                const linktext = await pickTrayTask(this.plugin);
-                if (!linktext) {
+                const title = await pickTrayTask(
+                    this.plugin,
+                    DateTime.fromJSDate(start).toISODate()
+                );
+                if (!title) {
                     return;
                 }
                 // A plain click selects a single slot (30 min); treat it as
@@ -453,7 +456,7 @@ export class CalendarView extends ItemView {
                     end.getTime() - start.getTime() <= 30 * 60 * 1000;
                 await createSession(
                     this.plugin,
-                    `[[${linktext}]]`,
+                    title,
                     start,
                     allDay,
                     isClick ? undefined : end

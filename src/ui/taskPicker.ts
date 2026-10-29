@@ -1,26 +1,29 @@
 import { FuzzySuggestModal, Notice } from "obsidian";
 import type FullCalendarPlugin from "../main";
-import { Card } from "./kanban";
 import { trayCards } from "./tray";
 import { linktextForEvent } from "../core/worklog";
+import { termHandsFor } from "../core/termHands";
 
 /*
- * Task picker: a fuzzy-searchable modal over the same cards the tray shows.
- * Used when a session is created from the calendar surface (click or
- * drag-select on an empty range) rather than from the tray itself.
+ * Task picker: a fuzzy-searchable modal over the current term's hands and
+ * the same cards the tray shows. Used when a session is created from the
+ * calendar surface (click or drag-select on an empty range) rather than
+ * from the tray itself.
  */
 
-type PickableCard = { card: Card; linktext: string };
+// `title` is what the work-log line gets: a task's wikilink, or a hand as
+// the term table names it (see termHands.ts).
+type PickableItem = { label: string; title: string };
 
-class TrayTaskModal extends FuzzySuggestModal<PickableCard> {
-    private items: PickableCard[];
-    private resolve: (linktext: string | null) => void;
+class TrayTaskModal extends FuzzySuggestModal<PickableItem> {
+    private items: PickableItem[];
+    private resolve: (title: string | null) => void;
     private chosen = false;
 
     constructor(
         plugin: FullCalendarPlugin,
-        items: PickableCard[],
-        resolve: (linktext: string | null) => void
+        items: PickableItem[],
+        resolve: (title: string | null) => void
     ) {
         super(plugin.app);
         this.items = items;
@@ -28,17 +31,17 @@ class TrayTaskModal extends FuzzySuggestModal<PickableCard> {
         this.setPlaceholder("Log a session for…");
     }
 
-    getItems(): PickableCard[] {
+    getItems(): PickableItem[] {
         return this.items;
     }
 
-    getItemText(item: PickableCard): string {
-        return item.card.event.title;
+    getItemText(item: PickableItem): string {
+        return item.label;
     }
 
-    onChooseItem(item: PickableCard): void {
+    onChooseItem(item: PickableItem): void {
         this.chosen = true;
-        this.resolve(item.linktext);
+        this.resolve(item.title);
     }
 
     onClose(): void {
@@ -55,21 +58,28 @@ class TrayTaskModal extends FuzzySuggestModal<PickableCard> {
 }
 
 /**
- * Let the user pick one of this sprint's tasks. Resolves with the task's
- * linktext, or null if the modal is dismissed without a choice.
+ * Let the user pick one of the term's hands (for the term covering `date`,
+ * YYYY-MM-DD) or this sprint's tasks. Resolves with the work-log title to
+ * write, or null if the modal is dismissed without a choice.
  */
-export function pickTrayTask(
-    plugin: FullCalendarPlugin
+export async function pickTrayTask(
+    plugin: FullCalendarPlugin,
+    date: string
 ): Promise<string | null> {
-    const items = trayCards(plugin)
-        .map((card) => ({
-            card,
-            linktext: linktextForEvent(plugin, card.id),
-        }))
-        .filter((item): item is PickableCard => !!item.linktext);
+    const hands: PickableItem[] = (
+        await termHandsFor(plugin.app, plugin.settings.termFolder || "", date)
+    ).map((hand) => ({ label: hand.name, title: hand.title }));
+    const tasks: PickableItem[] = [];
+    for (const card of trayCards(plugin)) {
+        const linktext = linktextForEvent(plugin, card.id);
+        if (linktext) {
+            tasks.push({ label: card.event.title, title: `[[${linktext}]]` });
+        }
+    }
+    const items = [...hands, ...tasks];
     if (items.length === 0) {
-        new Notice("No tasks this sprint to log a session for.");
-        return Promise.resolve(null);
+        new Notice("No term hands or sprint tasks to log a session for.");
+        return null;
     }
     return new Promise((resolve) => {
         new TrayTaskModal(plugin, items, resolve).open();
