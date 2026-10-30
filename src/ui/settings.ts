@@ -45,7 +45,7 @@ export interface FullCalendarSettings {
     // tray, or the sprint board. Empty string disables the feature.
     issuesFolder: string;
     // Folder of term notes (frontmatter `start`/`end`, a table with a 手
-    // column). The term covering a selected day offers its bets in the
+    // column). The term covering a selected day offers its hands in the
     // session picker. Empty string disables the feature.
     termFolder: string;
     // Auto-folders the user manually removed from the calendar list — never
@@ -409,7 +409,7 @@ export class FullCalendarSettingTab extends PluginSettingTab {
             .setDesc(
                 "Term notes with start/end frontmatter and a table with a " +
                     "手 column. Selecting an empty range on the calendar " +
-                    "offers the bets of the term covering that day, above " +
+                    "offers the hands of the term covering that day, above " +
                     "this sprint's tasks."
             )
             .addDropdown((dropdown) => {
