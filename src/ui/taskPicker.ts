@@ -2,20 +2,20 @@ import { FuzzyMatch, FuzzySuggestModal, Notice } from "obsidian";
 import type FullCalendarPlugin from "../main";
 import { trayCards } from "./tray";
 import { linktextForEvent } from "../core/worklog";
-import { termHandsFor } from "../core/termHands";
+import { termBetsFor } from "../core/termBets";
 
 /*
- * Task picker: a fuzzy-searchable modal over the current term's hands and
+ * Task picker: a fuzzy-searchable modal over the current term's bets and
  * the same cards the tray shows. Used when a session is created from the
  * calendar surface (click or drag-select on an empty range) rather than
  * from the tray itself.
  */
 
-// `title` is what the work-log line gets: a task's wikilink, or a hand as
-// the term table names it (see termHands.ts). `group` indexes GROUPS.
+// `title` is what the work-log line gets: a task's wikilink, or a bet as
+// the term table names it (see termBets.ts). `group` indexes GROUPS.
 type PickableItem = { label: string; title: string; group: number };
 
-// Hands first, then tasks. Each group gets a heading above its first row.
+// Bets first, then tasks. Each group gets a heading above its first row.
 const GROUPS = ["今期の手", "今週のタスク"];
 
 class TrayTaskModal extends FuzzySuggestModal<PickableItem> {
@@ -96,7 +96,7 @@ class TrayTaskModal extends FuzzySuggestModal<PickableItem> {
 }
 
 /**
- * Let the user pick one of the term's hands (for the term covering `date`,
+ * Let the user pick one of the term's bets (for the term covering `date`,
  * YYYY-MM-DD) or this sprint's tasks. Resolves with the work-log title to
  * write, or null if the modal is dismissed without a choice.
  */
@@ -104,9 +104,9 @@ export async function pickTrayTask(
     plugin: FullCalendarPlugin,
     date: string
 ): Promise<string | null> {
-    const hands: PickableItem[] = (
-        await termHandsFor(plugin.app, plugin.settings.termFolder || "", date)
-    ).map((hand) => ({ label: hand.name, title: hand.title, group: 0 }));
+    const bets: PickableItem[] = (
+        await termBetsFor(plugin.app, plugin.settings.termFolder || "", date)
+    ).map((bet) => ({ label: bet.name, title: bet.title, group: 0 }));
     const tasks: PickableItem[] = [];
     for (const card of trayCards(plugin)) {
         const linktext = linktextForEvent(plugin, card.id);
@@ -118,9 +118,9 @@ export async function pickTrayTask(
             });
         }
     }
-    const items = [...hands, ...tasks];
+    const items = [...bets, ...tasks];
     if (items.length === 0) {
-        new Notice("No term hands or sprint tasks to log a session for.");
+        new Notice("No term bets or sprint tasks to log a session for.");
         return null;
     }
     return new Promise((resolve) => {

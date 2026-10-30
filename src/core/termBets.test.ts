@@ -1,30 +1,30 @@
-import { handFromCell, parseTermHands } from "./termHands";
+import { betFromCell, parseTermBets } from "./termBets";
 
-describe("handFromCell", () => {
+describe("betFromCell", () => {
     it("keeps a lone wikilink", () => {
-        expect(handFromCell(" [[回復]] ")).toEqual({
+        expect(betFromCell(" [[回復]] ")).toEqual({
             name: "回復",
             title: "[[回復]]",
         });
     });
 
     it("uses plain text as is", () => {
-        expect(handFromCell("時短")).toEqual({ name: "時短", title: "時短" });
+        expect(betFromCell("時短")).toEqual({ name: "時短", title: "時短" });
     });
 
     it("takes the text before a parenthesis", () => {
-        expect(handFromCell("資産形成（[[お金の設計]]）")).toEqual({
+        expect(betFromCell("資産形成（[[お金の設計]]）")).toEqual({
             name: "資産形成",
             title: "資産形成",
         });
     });
 
     it("skips an empty cell", () => {
-        expect(handFromCell("  ")).toBeNull();
+        expect(betFromCell("  ")).toBeNull();
     });
 });
 
-describe("parseTermHands", () => {
+describe("parseTermBets", () => {
     const page = [
         "---",
         "term: 2026",
@@ -41,7 +41,7 @@ describe("parseTermHands", () => {
     ].join("\n");
 
     it("reads the 手 column in table order, skipping empty cells", () => {
-        expect(parseTermHands(page).map((h) => h.title)).toEqual([
+        expect(parseTermBets(page).map((h) => h.title)).toEqual([
             "[[回復]]",
             "時短",
             "資産形成",
@@ -50,6 +50,6 @@ describe("parseTermHands", () => {
     });
 
     it("returns nothing without a 手 column", () => {
-        expect(parseTermHands("| a | b |\n| - | - |\n| 1 | 2 |")).toEqual([]);
+        expect(parseTermBets("| a | b |\n| - | - |\n| 1 | 2 |")).toEqual([]);
     });
 });
