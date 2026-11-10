@@ -488,7 +488,7 @@ export default class FullCalendarPlugin extends Plugin {
      * Persist the tray's manual card order. Pure layout state — no cache
      * reset.
      */
-    async saveTrayOrder() {
+    async saveTrayState() {
         await this.saveData(this.settings);
     }
 

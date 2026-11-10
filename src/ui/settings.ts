@@ -81,9 +81,6 @@ export interface FullCalendarSettings {
     trayWidth: number;
     // Width of the memo column on the calendar's right (desktop).
     memoWidth: number;
-    // Manual tray order, keyed by sprint week ("2026-W28"). Entries are task
-    // linktexts. Only the current week's key is kept.
-    trayOrder: Record<string, string[]>;
     // Tray status groups the user has expanded (keyed by status name).
     // Missing means collapsed — groups exist to get cards out of the way.
     trayExpanded: Record<string, boolean>;
@@ -122,7 +119,6 @@ export const DEFAULT_SETTINGS: FullCalendarSettings = {
     },
     trayWidth: 220,
     memoWidth: 300,
-    trayOrder: {},
     trayExpanded: {},
     statuses: DEFAULT_STATUSES,
     uncheckStatus: DEFAULT_UNCHECK_STATUS,

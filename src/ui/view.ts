@@ -27,7 +27,8 @@ import {
     FULL_CALENDAR_TRAY_VIEW_TYPE,
 } from "./panes";
 import { pickTrayTask } from "./taskPicker";
-import { collectTaskCards, FULL_CALENDAR_KANBAN_VIEW_TYPE } from "./kanban";
+import { FULL_CALENDAR_KANBAN_VIEW_TYPE } from "./kanban";
+import { collectTaskCards } from "../core/cards";
 
 export const FULL_CALENDAR_VIEW_TYPE = "full-calendar-view";
 export const FULL_CALENDAR_SIDEBAR_VIEW_TYPE = "full-calendar-sidebar-view";

@@ -1,4 +1,4 @@
-import { collectTaskCards } from "../ui/kanban";
+import { collectTaskCards } from "./cards";
 import { actualMinutesByLinktext, linktextForEvent } from "./worklog";
 import type FullCalendarPlugin from "../main";
 

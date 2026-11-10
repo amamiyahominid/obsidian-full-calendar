@@ -2,12 +2,8 @@ import { Notice, Platform, setIcon } from "obsidian";
 import { DateTime } from "luxon";
 import { Draggable } from "@fullcalendar/interaction";
 import type FullCalendarPlugin from "../main";
-import {
-    collectTaskCards,
-    moveCardToStatus,
-    projectLabel,
-    Card,
-} from "./kanban";
+import { Card, collectTaskCards, projectLabel } from "../core/cards";
+import { moveCardToStatus } from "./kanban";
 import { dueBadge, sprintBucket, weekOf } from "./sprint";
 import { openFileForEvent } from "./actions";
 import { launchEditModal } from "./event_modal";
@@ -33,10 +29,10 @@ import { dueMeta, metaPart, renderRow, RowButton, timeLabel } from "./row";
 
 /*
  * Task tray: THE work list next to the calendar. Cards live in status
- * groups (stage order, collapsible; late stages start tucked away), and
- * keep a manual order within their group. One drag gesture on the card
- * body does both jobs: moving inside the tray reorders, crossing into the
- * calendar stamps a work-log session at the drop position (the task itself
+ * groups (stage order, collapsible; late stages start tucked away), sorted
+ * by deadline within their group. One drag gesture on the card body does
+ * both jobs: moving inside the tray changes the task's group (its status)
+ * or adds it to today, crossing into the calendar stamps a work-log session at the drop position (the task itself
  * never moves — see core/worklog.ts). Dragging a TODO onto the calendar
  * reschedules the TODO line itself.
  *
@@ -127,59 +123,27 @@ async function addTaskToToday(
 const cardDone = (c: Card): boolean => isDoneStatus(c.event.status);
 
 /**
- * Arrange a group's cards by the saved manual order; cards the order
- * doesn't know yet append at the end. ":"-prefixed entries are leftovers
- * from the retired divider feature and are skipped.
+ * A group's rows in reading order: nearest deadline first (no deadline
+ * last), then oldest, then by title. There is no manual order — the one
+ * place order is decided by hand is today's list, in the daily note.
  */
-function arrangeCards(
-    entries: string[],
-    cardsByLink: Map<string, Card>
-): { card: Card; linktext: string }[] {
-    const pending = new Map(cardsByLink);
-    const items: { card: Card; linktext: string }[] = [];
-    for (const entry of entries) {
-        if (entry.startsWith(":")) {
-            continue;
+function sortGroup(cards: Card[]): Card[] {
+    const key = (c: Card) => [
+        c.event.due ?? "9999-99-99",
+        c.event.date ?? "",
+        c.event.title,
+    ];
+    return [...cards].sort((a, b) => {
+        const ka = key(a);
+        const kb = key(b);
+        for (let i = 0; i < ka.length; i++) {
+            const cmp = ka[i].localeCompare(kb[i]);
+            if (cmp !== 0) {
+                return cmp;
+            }
         }
-        const card = pending.get(entry);
-        if (card) {
-            items.push({ card, linktext: entry });
-            pending.delete(entry);
-        }
-    }
-    for (const [linktext, card] of pending) {
-        items.push({ card, linktext });
-    }
-    return items;
-}
-
-/**
- * Persist the manual order: every card currently visible in a group body,
- * in DOM order, then the previously saved entries that aren't visible right
- * now (cards inside collapsed groups keep their relative order). One flat
- * list per sprint week — groups filter it down to their own members.
- */
-async function saveOrderFromTray(
-    plugin: FullCalendarPlugin,
-    trayEl: HTMLElement
-): Promise<void> {
-    const entries: string[] = [];
-    for (const cardEl of Array.from(
-        trayEl.querySelectorAll(".ofc-tray-group-body .ofc-tray-card")
-    ) as HTMLElement[]) {
-        if (cardEl.dataset.linktext) {
-            entries.push(cardEl.dataset.linktext);
-        }
-    }
-    const week = weekOf(0);
-    const seen = new Set(entries);
-    for (const old of plugin.settings.trayOrder?.[week] ?? []) {
-        if (!old.startsWith(":") && !seen.has(old)) {
-            entries.push(old);
-        }
-    }
-    plugin.settings.trayOrder = { [week]: entries };
-    await plugin.saveTrayOrder();
+        return 0;
+    });
 }
 
 /**
@@ -309,19 +273,15 @@ function makeBodyDraggable(
                     target = s;
                 }
             }
-            if (target.body) {
-                const siblings = (
-                    Array.from(target.body.children) as HTMLElement[]
-                ).filter((c) => c !== cardEl);
-                let before: HTMLElement | null = null;
-                for (const sib of siblings) {
-                    const r = sib.getBoundingClientRect();
-                    if (e.clientY < r.top + r.height / 2) {
-                        before = sib;
-                        break;
-                    }
+            if (target.header.dataset.stage === ownStage) {
+                // Back over its own group: nothing to change.
+                if (homeParent) {
+                    homeParent.insertBefore(cardEl, homeNext);
                 }
-                target.body.insertBefore(cardEl, before);
+            } else if (target.body) {
+                // Another open group: the card shows up at its end. Where
+                // exactly it lands is the group's sort order's business.
+                target.body.appendChild(cardEl);
             } else {
                 headerTarget = target.header;
                 headerTarget.addClass("ofc-tray-group-droptarget");
@@ -385,12 +345,11 @@ function makeBodyDraggable(
                 ? headerTarget.dataset.stage
                 : (cardEl.closest(".ofc-tray-group-body") as HTMLElement | null)
                       ?.dataset.stage;
-            leaveReorder(false);
-            // Persist the position first: the status write triggers a tray
-            // refresh, which must already see the card's new slot.
-            await saveOrderFromTray(plugin, trayEl);
             if (dropStage && dropStage !== ownStage) {
+                leaveReorder(false);
                 await moveCardToStatus(plugin, cardId, dropStage);
+            } else {
+                leaveReorder(true);
             }
         };
         document.addEventListener("pointermove", onMove);
@@ -883,7 +842,6 @@ export function renderTaskTray(
                     )
             ),
         ].sort();
-        const entries = plugin.settings.trayOrder?.[weekOf(0)] ?? [];
 
         for (const stage of [...stages, ...extras]) {
             const groupCards = cards.filter((c) => c.event.status === stage);
@@ -913,21 +871,17 @@ export function renderTaskTray(
                     ...plugin.settings.trayExpanded,
                     [stage]: !expanded,
                 };
-                await plugin.saveTrayOrder();
+                await plugin.saveTrayState();
                 refresh();
             };
             if (expanded) {
                 const body = weekEl.createDiv({ cls: "ofc-tray-group-body" });
                 body.dataset.stage = stage;
-                const byLink = new Map<string, Card>();
-                for (const c of groupCards) {
+                for (const c of sortGroup(groupCards)) {
                     const link = linktextForEvent(plugin, c.id);
                     if (link) {
-                        byLink.set(link, c);
+                        renderCard(body, c, link);
                     }
-                }
-                for (const item of arrangeCards(entries, byLink)) {
-                    renderCard(body, item.card, item.linktext);
                 }
             }
         }
