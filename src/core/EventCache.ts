@@ -448,8 +448,8 @@ export default class EventCache {
      */
     async deleteEvent(eventId: string): Promise<void> {
         const { calendar, location } = this.getInfoForEditableEvent(eventId);
-        this.store.delete(eventId);
-        await calendar.deleteEvent(location);
+        const event = this.store.delete(eventId);
+        await calendar.deleteEvent(location, event ?? undefined);
         this.updateViews([eventId], []);
     }
 

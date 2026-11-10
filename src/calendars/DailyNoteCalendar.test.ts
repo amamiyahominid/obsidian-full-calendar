@@ -2,7 +2,6 @@ import {
     addToHeading,
     getInlineAttributes,
     getInlineEventFromLine,
-    getTodoRegionListItems,
 } from "./DailyNoteCalendar";
 import { CachedMetadata, HeadingCache, ListItemCache } from "obsidian";
 import { OFCEvent } from "../types";
@@ -80,62 +79,6 @@ describe("getInlineEventFromLine in TODO mode", () => {
                 endTime: "10:30",
             })
         );
-    });
-});
-
-describe("getTodoRegionListItems", () => {
-    const item = (startOffset: number, endOffset: number): ListItemCache =>
-        ({
-            position: {
-                start: { line: 0, col: 0, offset: startOffset },
-                end: { line: 0, col: 0, offset: endOffset },
-            },
-        } as ListItemCache);
-
-    it("returns items before the first thematic break", () => {
-        const items = [item(0, 20), item(21, 40), item(60, 80)];
-        const metadata = {
-            listItems: items,
-            sections: [
-                {
-                    type: "thematicBreak",
-                    position: {
-                        start: { line: 3, col: 0, offset: 45 },
-                        end: { line: 3, col: 3, offset: 48 },
-                    },
-                },
-            ],
-        } as CachedMetadata;
-        expect(getTodoRegionListItems(metadata)).toEqual([items[0], items[1]]);
-    });
-
-    it("returns items before the first heading", () => {
-        const items = [item(0, 20), item(60, 80)];
-        const metadata = {
-            listItems: items,
-            headings: [
-                {
-                    heading: "作業ログ",
-                    level: 2,
-                    position: {
-                        start: { line: 3, col: 0, offset: 30 },
-                        end: { line: 3, col: 7, offset: 37 },
-                    },
-                },
-            ],
-        } as CachedMetadata;
-        expect(getTodoRegionListItems(metadata)).toEqual([items[0]]);
-    });
-
-    it("returns all items when there is no boundary", () => {
-        const items = [item(0, 20), item(21, 40)];
-        expect(
-            getTodoRegionListItems({ listItems: items } as CachedMetadata)
-        ).toEqual(items);
-    });
-
-    it("returns nothing for a file with no list items", () => {
-        expect(getTodoRegionListItems({} as CachedMetadata)).toEqual([]);
     });
 });
 

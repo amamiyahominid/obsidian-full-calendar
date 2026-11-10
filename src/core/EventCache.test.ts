@@ -438,8 +438,10 @@ describe("editable calendars", () => {
 
             const calendar = getCalendar(cache, "test");
             expect(calendar.deleteEvent.mock.calls.length).toBe(1);
+            // The calendar gets the event too, to find its line by name.
             expect(calendar.deleteEvent.mock.calls[0]).toEqual([
                 pathResult(event[1]),
+                event[0],
             ]);
 
             assertCacheContentCounts(cache, {

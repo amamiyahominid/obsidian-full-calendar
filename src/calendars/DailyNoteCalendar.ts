@@ -1,12 +1,5 @@
 import moment from "moment";
-import {
-    TFile,
-    CachedMetadata,
-    HeadingCache,
-    ListItemCache,
-    Loc,
-    Pos,
-} from "obsidian";
+import { TFile } from "obsidian";
 import {
     appHasDailyNotesPluginLoaded,
     createDailyNote,
@@ -16,6 +9,17 @@ import {
     getDateFromFile,
 } from "obsidian-daily-notes-interface";
 import { EventPathLocation } from "../core/EventStore";
+import {
+    blockIdFromEventId,
+    blockIdOf,
+    findHeading,
+    findLineByBlockId,
+    lineEventId,
+    listLinesInTopRegion,
+    listLinesUnderHeading,
+    newBlockId,
+    stripBlockId,
+} from "../core/dailyText";
 import { ObsidianInterface } from "../ObsidianAdapter";
 import { OFCEvent, EventLocation, CalendarInfo, validateEvent } from "../types";
 import { EventResponse } from "./Calendar";
@@ -42,78 +46,6 @@ export function getInlineAttributes(
     );
 }
 
-const getHeadingPosition = (
-    headingText: string,
-    metadata: CachedMetadata,
-    endOfDoc: Loc
-): Pos | null => {
-    if (!metadata.headings) {
-        return null;
-    }
-
-    let level: number | null = null;
-    let startingPos: Pos | null = null;
-    let endingPos: Pos | null = null;
-
-    for (const heading of metadata.headings) {
-        if (!level && heading.heading === headingText) {
-            level = heading.level;
-            startingPos = heading.position;
-        } else if (level && heading.level <= level) {
-            endingPos = heading.position;
-            break;
-        }
-    }
-
-    if (!level || !startingPos) {
-        return null;
-    }
-
-    return { start: startingPos.end, end: endingPos?.start || endOfDoc };
-};
-
-const getListsUnderHeading = (
-    headingText: string,
-    metadata: CachedMetadata
-): ListItemCache[] => {
-    if (!metadata.listItems) {
-        return [];
-    }
-    const endOfDoc = metadata.sections?.last()?.position.end;
-    if (!endOfDoc) {
-        return [];
-    }
-    const headingPos = getHeadingPosition(headingText, metadata, endOfDoc);
-    if (!headingPos) {
-        return [];
-    }
-    return metadata.listItems?.filter(
-        (l) =>
-            headingPos.start.offset < l.position.start.offset &&
-            l.position.end.offset <= headingPos.end.offset
-    );
-};
-
-/**
- * List items in the "TODO region" of a daily note: everything from the top of
- * the file until the first heading or thematic break (`---`), whichever comes
- * first. This matches the daily-note template's layout, where rolled-over
- * TODOs sit at the top of the note above a `---` separator.
- */
-export const getTodoRegionListItems = (
-    metadata: CachedMetadata
-): ListItemCache[] => {
-    if (!metadata.listItems) {
-        return [];
-    }
-    const firstHeading = metadata.headings?.[0]?.position.start.offset;
-    const firstBreak = metadata.sections?.find(
-        (s) => s.type === "thematicBreak"
-    )?.position.start.offset;
-    const boundary = Math.min(firstHeading ?? Infinity, firstBreak ?? Infinity);
-    return metadata.listItems.filter((l) => l.position.start.offset < boundary);
-};
-
 const listRegex = /^(\s*)\-\s+(\[(.)\]\s+)?/;
 const checkboxRegex = /^\s*\-\s+\[(.)\]\s+/;
 const checkboxTodo = (s: string) => {
@@ -133,6 +65,18 @@ export const getInlineEventFromLine = (
     globalAttrs: Partial<OFCEvent>,
     opts: { implicitTodo?: boolean } = {}
 ): OFCEvent | null => {
+    // A trailing block id (" ^k3f9aq") names the line; it is not part of
+    // the title. The event's id adds the note's date, since a block id is
+    // only unique within its note.
+    const blockId = blockIdOf(text);
+    if (blockId) {
+        text = stripBlockId(text);
+        const date = (globalAttrs as { date?: string }).date;
+        globalAttrs = {
+            ...globalAttrs,
+            id: date ? lineEventId(date, blockId) : blockId,
+        };
+    }
     const attrs = getInlineAttributes(text);
 
     if (Object.keys(attrs).length === 0) {
@@ -166,30 +110,35 @@ export const getInlineEventFromLine = (
 
 function getAllInlineEventsFromFile(
     fileText: string,
-    listItems: ListItemCache[],
+    listLines: (lines: string[]) => number[],
     fileGlobalAttrs: Partial<OFCEvent>,
     opts: { implicitTodo?: boolean } = {}
 ): { lineNumber: number; event: OFCEvent }[] {
     const lines = fileText.split("\n");
-    const listItemText: Line[] = listItems
-        .map((i) => i.position.start.line)
-        .map((idx) => ({ lineNumber: idx, text: lines[idx] }));
-
-    return listItemText
-        .map((l) => ({
-            lineNumber: l.lineNumber,
-            event: getInlineEventFromLine(
-                l.text,
-                {
-                    ...fileGlobalAttrs,
-                    type: "single",
-                },
-                opts
-            ),
-        }))
-        .flatMap(({ event, lineNumber }) =>
-            event ? [{ event, lineNumber }] : []
+    const seen = new Set<string>();
+    const out: { lineNumber: number; event: OFCEvent }[] = [];
+    for (const lineNumber of listLines(lines)) {
+        const event = getInlineEventFromLine(
+            lines[lineNumber],
+            { ...fileGlobalAttrs, type: "single" },
+            opts
         );
+        if (!event) {
+            continue;
+        }
+        // A copied line carries its block id along. Two events with one id
+        // can't both be stored, so only the first keeps it; the copy reads
+        // as a line with no id (and gets its own when next written).
+        if (event.id) {
+            if (seen.has(event.id)) {
+                delete event.id;
+            } else {
+                seen.add(event.id);
+            }
+        }
+        out.push({ lineNumber, event });
+    }
+    return out;
 }
 
 // SERIALIZATION
@@ -217,6 +166,13 @@ const makeListItem = (
     })();
 
     const attrs: Partial<OFCEvent> = { ...data };
+    // The line's name goes last, as a block id — after the inline fields,
+    // where Obsidian expects it. (An id of any other shape, i.e. a
+    // hand-written `[id:: x]`, stays an inline field.)
+    const blockId = blockIdFromEventId(data.id);
+    if (blockId) {
+        delete attrs["id"];
+    }
     delete attrs["completed"];
     delete attrs["title"];
     delete attrs["type"];
@@ -235,9 +191,10 @@ const makeListItem = (
         delete attrs["allDay"];
     }
 
-    return `${whitespacePrefix}- ${
+    const line = `${whitespacePrefix}- ${
         checkbox || ""
     } ${title} ${generateInlineAttributes(attrs)}`.trimEnd();
+    return blockId ? `${line} ^${blockId}` : line;
 };
 
 const modifyListItem = (
@@ -263,7 +220,11 @@ const modifyListItem = (
  */
 // TODO: refactor this to not do the weird props thing
 type AddToHeadingProps = {
-    heading: HeadingCache | undefined;
+    // Where the heading is. Only its line and level are used, so both
+    // Obsidian's HeadingCache and a position read from the text fit.
+    heading:
+        | { position: { start: { line: number } }; level: number }
+        | undefined;
     item: OFCEvent;
     headingText: string;
 };
@@ -366,6 +327,14 @@ const addToTodoRegion = (
     return { page: lines.join("\n"), lineNumber: insertAt };
 };
 
+/** A heading's place, read from the text, in the shape addToHeading takes. */
+const headingRef = (lines: string[], text: string) => {
+    const h = findHeading(lines, text);
+    return h
+        ? { position: { start: { line: h.line } }, level: h.level }
+        : undefined;
+};
+
 export default class DailyNoteCalendar extends EditableCalendar {
     app: ObsidianInterface;
     heading: string;
@@ -411,20 +380,19 @@ export default class DailyNoteCalendar extends EditableCalendar {
         if (!date) {
             return [];
         }
-        const cache = this.app.getMetadata(file);
-        if (!cache) {
-            return [];
-        }
+        // Structure is read from the note's own text (core/dailyText), not
+        // from Obsidian's parsed metadata: the text is what gets rewritten,
+        // so reading it keeps line numbers and content from one source.
         // TODO mode reads under its heading when one is configured (e.g.
         // "## TODO"); without one it falls back to the top-of-file region.
-        const listItems =
+        const listLines = (lines: string[]) =>
             this.todos && !this.heading
-                ? getTodoRegionListItems(cache)
-                : getListsUnderHeading(this.heading, cache);
+                ? listLinesInTopRegion(lines)
+                : listLinesUnderHeading(lines, this.heading);
         const inlineEvents = await this.app.process(file, (text) =>
             getAllInlineEventsFromFile(
                 text,
-                listItems,
+                listLines,
                 { date },
                 { implicitTodo: this.todos }
             )
@@ -457,28 +425,41 @@ export default class DailyNoteCalendar extends EditableCalendar {
             file = (await createDailyNote(m)) as TFile;
         }
 
+        const date = m.format(DATE_FORMAT);
         if (this.todos && !this.heading) {
-            const item = this.asTodoItem(event);
             let lineNumber = await this.app.rewrite(file, (contents) => {
+                const item = this.named(
+                    this.asTodoItem(event),
+                    contents.split("\n"),
+                    date
+                );
+                event.id = item.id;
                 const { page, lineNumber } = addToTodoRegion(contents, item);
                 return [page, lineNumber] as [string, number];
             });
             return { file, lineNumber };
         }
 
-        const metadata = await this.app.waitForMetadata(file);
+        // A note created a moment ago may still be getting its template;
+        // wait until Obsidian has indexed it before writing into it.
+        await this.app.waitForMetadata(file);
 
-        // A missing heading is fine — addToHeading appends it to the end of
-        // the note, so notes created before the work-log workflow just work.
-        const headingInfo = metadata.headings?.find(
-            (h) => h.heading == this.heading
-        );
-        const item = this.todos ? this.asTodoItem(event) : event;
         let lineNumber = await this.app.rewrite(file, (contents) => {
+            const lines = contents.split("\n");
+            const item = this.named(
+                this.todos ? this.asTodoItem(event) : event,
+                lines,
+                date
+            );
+            // The caller stores this same object: give it the line's name
+            // so the cache knows the event by the id that is on disk.
+            event.id = item.id;
             const { page, lineNumber } = addToHeading(
                 contents,
                 {
-                    heading: headingInfo,
+                    // A missing heading is fine — addToHeading appends it
+                    // to the end of the note.
+                    heading: headingRef(lines, this.heading),
                     item,
                     headingText: this.heading,
                 },
@@ -512,17 +493,48 @@ export default class DailyNoteCalendar extends EditableCalendar {
      * refuse to touch anything when that isn't unambiguous, rather than
      * splicing a wrong line and corrupting the note.
      */
+    /**
+     * The event with a line name. One it already has is kept unless another
+     * line of this note holds it (a line moved in from a different day);
+     * otherwise it gets a fresh one. `onDisk` is the id the line being
+     * rewritten carries in the note, which wins over everything.
+     */
+    private named(
+        event: OFCEvent,
+        lines: string[],
+        date: string,
+        onDisk?: string | null
+    ): OFCEvent {
+        const own = blockIdFromEventId(event.id);
+        const blockId =
+            onDisk ??
+            (own && findLineByBlockId(lines, own) < 0
+                ? own
+                : newBlockId(lines));
+        return { ...event, id: lineEventId(date, blockId) };
+    }
+
     private findEventLine(
         lines: string[],
         lineNumber: number,
-        title: string
+        title: string,
+        id?: string
     ): number | null {
+        // A line that has a name is found by its name, wherever it moved
+        // to and whatever else shares its title.
+        const blockId = blockIdFromEventId(id);
+        if (blockId) {
+            const at = findLineByBlockId(lines, blockId);
+            if (at >= 0) {
+                return at;
+            }
+        }
         const wanted = title.trim();
         const matches = (line: string | undefined): boolean => {
             if (line === undefined || !line.match(listRegex)) {
                 return false;
             }
-            const text = line
+            const text = stripBlockId(line)
                 .replace(listRegex, "")
                 .replace(fieldRegex, "")
                 .trim();
@@ -548,19 +560,29 @@ export default class DailyNoteCalendar extends EditableCalendar {
         if (!file) {
             throw new Error(`File not found at path: ${path}`);
         }
-        if (!lineNumber) {
+        if (lineNumber === undefined || lineNumber === null) {
             throw new Error(`Daily note events must have a line number.`);
         }
         return { file, lineNumber };
     }
 
-    async deleteEvent(loc: EventPathLocation): Promise<void> {
+    async deleteEvent(loc: EventPathLocation, event?: OFCEvent): Promise<void> {
         const { file, lineNumber } = this.getConcreteLocation(loc);
         // Awaited: the caller's next step may be another edit of this same
         // note, which must see this one already written.
         await this.app.rewrite(file, (contents) => {
             let lines = contents.split("\n");
-            lines.splice(lineNumber, 1);
+            // Same care as a rewrite: find the line by name (or title)
+            // instead of trusting a stored line number with a deletion.
+            const target = event
+                ? this.findEventLine(lines, lineNumber, event.title, event.id)
+                : lineNumber;
+            if (target === null) {
+                throw new Error(
+                    `Could not find "${event?.title}" in ${file.path} — the note just changed. Try again.`
+                );
+            }
+            lines.splice(target, 1);
             return lines.join("\n");
         });
     }
@@ -573,6 +595,7 @@ export default class DailyNoteCalendar extends EditableCalendar {
     ): Promise<void> {
         // Relocation must match what's on disk NOW, i.e. the PRE-edit title.
         const needle = (oldEvent ?? newEvent).title;
+        const needleId = (oldEvent ?? newEvent).id;
         console.debug("modified daily note event");
         if (newEvent.type !== "single" && newEvent.type !== undefined) {
             throw new Error(
@@ -605,13 +628,7 @@ export default class DailyNoteCalendar extends EditableCalendar {
             // The target note may have JUST been created — wait for its
             // metadata instead of racing the cache and appending a duplicate
             // heading at the end of the file.
-            const metadata = await this.app.waitForMetadata(newFile);
-            // A missing heading is fine — addToHeading appends it to the end
-            // of the destination note.
-            const headingInfo =
-                this.todos && !this.heading
-                    ? undefined
-                    : metadata.headings?.find((h) => h.heading == this.heading);
+            await this.app.waitForMetadata(newFile);
 
             await this.app.rewrite(file, async (oldFileContents) => {
                 // Open the old file and remove the event.
@@ -619,7 +636,8 @@ export default class DailyNoteCalendar extends EditableCalendar {
                 const sourceLine = this.findEventLine(
                     lines,
                     lineNumber,
-                    needle
+                    needle,
+                    needleId
                 );
                 if (sourceLine === null) {
                     throw new Error(
@@ -629,19 +647,28 @@ export default class DailyNoteCalendar extends EditableCalendar {
                 lines.splice(sourceLine, 1);
                 await this.app.rewrite(newFile, (newFileContents) => {
                     // Before writing that change back to disk, open the new file and add the event.
+                    const newLines = newFileContents.split("\n");
+                    // The line keeps its name across days when it can; the
+                    // event id follows the note it now lives in.
+                    const item = this.named(
+                        this.todos ? this.asTodoItem(newEvent) : newEvent,
+                        newLines,
+                        newEvent.date as string
+                    );
+                    newEvent.id = item.id;
                     const { page, lineNumber } =
                         this.todos && !this.heading
-                            ? addToTodoRegion(
-                                  newFileContents,
-                                  this.asTodoItem(newEvent)
-                              )
+                            ? addToTodoRegion(newFileContents, item)
                             : addToHeading(
                                   newFileContents,
                                   {
-                                      heading: headingInfo,
-                                      item: this.todos
-                                          ? this.asTodoItem(newEvent)
-                                          : newEvent,
+                                      // A missing heading is fine —
+                                      // addToHeading appends it.
+                                      heading: headingRef(
+                                          newLines,
+                                          this.heading
+                                      ),
+                                      item,
                                       headingText: this.heading,
                                   },
                                   { omitAllDay: this.todos }
@@ -658,17 +685,28 @@ export default class DailyNoteCalendar extends EditableCalendar {
             updateCacheWithLocation({ file, lineNumber });
             await this.app.rewrite(file, (contents) => {
                 const lines = contents.split("\n");
-                const target = this.findEventLine(lines, lineNumber, needle);
+                const target = this.findEventLine(
+                    lines,
+                    lineNumber,
+                    needle,
+                    needleId
+                );
                 if (target === null) {
                     throw new Error(
                         `Could not find "${needle}" in ${file.path} — the note just changed. Try again.`
                     );
                 }
-                const newLine = modifyListItem(
-                    lines[target],
+                // A line with no name yet gets one on its first rewrite.
+                const item = this.named(
                     this.todos ? this.asTodoItem(newEvent) : newEvent,
-                    { omitAllDay: this.todos }
+                    lines,
+                    oldDate,
+                    blockIdOf(lines[target])
                 );
+                newEvent.id = item.id;
+                const newLine = modifyListItem(lines[target], item, {
+                    omitAllDay: this.todos,
+                });
                 if (!newLine) {
                     throw new Error("Did not successfully update line.");
                 }
