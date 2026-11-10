@@ -228,11 +228,6 @@ export function renderCalendar(
             if (borderColor) {
                 el.style.setProperty("--ofc-event-color", borderColor);
             }
-            // Still ahead of now: a plan, not a record. Drawn with a dashed
-            // edge until its time has come.
-            if (event.start && event.start.getTime() > Date.now()) {
-                el.addClass("ofc-event-future");
-            }
             // Guaranteed recurrence exclusion. FullCalendar's rrule plugin is
             // supposed to drop occurrences listed in `exdate` / EXDATE, but in
             // the Electron runtime (with our mismatched @fullcalendar plugin

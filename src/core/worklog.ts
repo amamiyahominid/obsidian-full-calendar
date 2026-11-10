@@ -16,14 +16,45 @@ import type FullCalendarPlugin from "../main";
  * daily-note calendar (the non-TODO one) is the destination for all sessions.
  */
 
+// The two headings of a daily note that hold blocks of time (docs/format.md).
+export const LOG_HEADING = "Log";
+export const PLAN_HEADING = "Plan";
+
 /** The calendar sessions are written to: the heading-mode daily note
  * calendar. There is at most one (settings enforce it). */
 export function getWorklogCalendarId(
     plugin: FullCalendarPlugin
 ): string | null {
+    let fallback: string | null = null;
     for (const source of plugin.cache.getAllEvents()) {
         const cal = plugin.cache.getCalendarById(source.id);
-        if (cal instanceof DailyNoteCalendar && !cal.todos) {
+        if (!(cal instanceof DailyNoteCalendar) || cal.todos) {
+            continue;
+        }
+        if (cal.heading === LOG_HEADING) {
+            return source.id;
+        }
+        if (cal.heading !== PLAN_HEADING) {
+            fallback ??= source.id;
+        }
+    }
+    return fallback;
+}
+
+/**
+ * The calendar for time that is still ahead: the daily note's "Plan"
+ * heading. Log holds what was actually spent; Plan holds what is meant to
+ * be. Null when the vault has no Plan calendar — then everything goes to
+ * the log, as before the two were told apart.
+ */
+export function getPlanCalendarId(plugin: FullCalendarPlugin): string | null {
+    for (const source of plugin.cache.getAllEvents()) {
+        const cal = plugin.cache.getCalendarById(source.id);
+        if (
+            cal instanceof DailyNoteCalendar &&
+            !cal.todos &&
+            cal.heading === PLAN_HEADING
+        ) {
             return source.id;
         }
     }
@@ -43,14 +74,21 @@ export async function createSession(
     allDay: boolean,
     end?: Date
 ): Promise<boolean> {
-    const calendarId = getWorklogCalendarId(plugin);
+    const dt = DateTime.fromJSDate(start);
+    // A block dropped ahead of the clock is a plan; one dropped on time
+    // already gone is a record of it.
+    const ahead = allDay
+        ? dt.startOf("day") > DateTime.now().startOf("day")
+        : dt > DateTime.now();
+    const calendarId =
+        (ahead ? getPlanCalendarId(plugin) : null) ??
+        getWorklogCalendarId(plugin);
     if (!calendarId) {
         new Notice(
             'No work-log calendar configured. Add a "Daily Note" calendar in the Full Calendar settings — sessions are written under its heading.'
         );
         return false;
     }
-    const dt = DateTime.fromJSDate(start);
     const date = dt.toISODate();
     let event: OFCEvent;
     if (allDay) {
@@ -234,6 +272,39 @@ export async function startSessionFromBlock(
         event.date === today && planned && planned <= nowTime
             ? planned
             : nowTime;
+    // Starting a planned block turns the plan into a record: the line
+    // leaves Plan and a running one opens in the log.
+    const planId = getPlanCalendarId(plugin);
+    const logId = getWorklogCalendarId(plugin);
+    let inPlan = false;
+    try {
+        inPlan =
+            planId !== null &&
+            plugin.cache.getInfoForEditableEvent(id).calendar.id === planId;
+    } catch {
+        // Not in the store any more; treat as a log block.
+    }
+    if (inPlan && logId) {
+        try {
+            await plugin.cache.addEvent(logId, {
+                type: "single",
+                title: event.title,
+                date: today,
+                endDate: null,
+                allDay: false,
+                startTime,
+                endTime: null,
+            });
+            await plugin.cache.deleteEvent(id);
+            return true;
+        } catch (e) {
+            if (e instanceof Error) {
+                console.error(e);
+                new Notice(e.message);
+            }
+            return false;
+        }
+    }
     try {
         const updated = await plugin.cache.updateEventWithId(id, {
             ...event,

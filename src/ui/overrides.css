@@ -948,9 +948,10 @@ textarea.ofc-tray-memo-editor:focus {
     --ofc-event-color: #14a3a3 !important;
 }
 
-/* Planned, not yet lived: lighter, with a dashed edge. */
-.fc .fc-timegrid-event.ofc-event-future,
-.fc .fc-daygrid-block-event.ofc-event-future {
+/* A block from the daily note's Plan — meant, not yet spent: lighter, with
+   a dashed edge. Blocks from Log are drawn solid. */
+.fc .fc-timegrid-event.ofc-event-plan,
+.fc .fc-daygrid-block-event.ofc-event-plan {
     background-color: color-mix(
         in srgb,
         var(--ofc-event-color) 12%,

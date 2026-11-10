@@ -18,7 +18,14 @@ import {
     FullCalendarSettings,
     FullCalendarSettingTab,
 } from "./ui/settings";
-import { PLUGIN_SLUG } from "./types";
+import { CalendarInfo, PLUGIN_SLUG } from "./types";
+import { LOG_HEADING, PLAN_HEADING } from "./core/worklog";
+import {
+    confirmPlanFor,
+    dailyDateOf,
+    fillPlanFor,
+    targetDailyNote,
+} from "./ui/planActions";
 import EventCache, { UpdateViewCallback } from "./core/EventCache";
 import { rollTodosForward } from "./core/todoRollover";
 import { reconcileActuals, scheduleActualsSync } from "./core/actualsSync";
@@ -33,6 +40,21 @@ import FullNoteCalendar from "./calendars/FullNoteCalendar";
 import DailyNoteCalendar from "./calendars/DailyNoteCalendar";
 import ICSCalendar from "./calendars/ICSCalendar";
 import CalDAVCalendar from "./calendars/CalDAVCalendar";
+
+/**
+ * The Plan heading is part of the format, not a setting: wherever a daily
+ * note's Log is a calendar, its Plan is one too, in the same colour. It is
+ * added in memory only — the saved sources keep listing what the user set.
+ */
+function withPlanSource(sources: CalendarInfo[]): CalendarInfo[] {
+    const isBlocks = (s: CalendarInfo, heading: string) =>
+        s.type === "dailynote" && !s.todos && s.heading === heading;
+    const log = sources.find((s) => isBlocks(s, LOG_HEADING));
+    if (!log || sources.some((s) => isBlocks(s, PLAN_HEADING))) {
+        return sources;
+    }
+    return [...sources, { ...log, heading: PLAN_HEADING } as CalendarInfo];
+}
 
 export default class FullCalendarPlugin extends Plugin {
     settings: FullCalendarSettings = DEFAULT_SETTINGS;
@@ -176,7 +198,7 @@ export default class FullCalendarPlugin extends Plugin {
             await this.saveData(this.settings);
         }
 
-        this.cache.reset(this.settings.calendarSources);
+        this.cache.reset(withPlanSource(this.settings.calendarSources));
 
         // TODO rollover is MANUAL-ONLY (the "Roll unfinished TODOs forward"
         // command). Running it automatically made unrelated edits look like
@@ -190,7 +212,9 @@ export default class FullCalendarPlugin extends Plugin {
                 // itself instead of each project's tasks/.
                 if (this.syncAutoTaskFolder()) {
                     await this.saveData(this.settings);
-                    this.cache.reset(this.settings.calendarSources);
+                    this.cache.reset(
+                        withPlanSource(this.settings.calendarSources)
+                    );
                 }
                 // Auto-register task folders created later: the configured
                 // root, or any folder beneath it (a new project's tasks/
@@ -213,6 +237,23 @@ export default class FullCalendarPlugin extends Plugin {
                         ) {
                             this.saveSettings();
                         }
+                    })
+                );
+                // A new daily note starts with the routine's blocks in its
+                // Plan. Waits a moment so whatever created the note (the
+                // daily-notes template, a sync) has finished writing it;
+                // fillPlan then only acts on a Plan that is still empty, so
+                // a note that arrives already planned is left alone.
+                this.registerEvent(
+                    this.app.vault.on("create", (file) => {
+                        if (!(file instanceof TFile) || !dailyDateOf(file)) {
+                            return;
+                        }
+                        window.setTimeout(() => {
+                            fillPlanFor(this, file).catch((e) =>
+                                console.error(e)
+                            );
+                        }, 1500);
                     })
                 );
                 await this.cache.populate();
@@ -324,7 +365,7 @@ export default class FullCalendarPlugin extends Plugin {
             id: "full-calendar-reset",
             name: "Reset Event Cache",
             callback: () => {
-                this.cache.reset(this.settings.calendarSources);
+                this.cache.reset(withPlanSource(this.settings.calendarSources));
                 this.app.workspace.detachLeavesOfType(FULL_CALENDAR_VIEW_TYPE);
                 this.app.workspace.detachLeavesOfType(
                     FULL_CALENDAR_SIDEBAR_VIEW_TYPE
@@ -373,6 +414,37 @@ export default class FullCalendarPlugin extends Plugin {
             name: "Open Calendar",
             callback: () => {
                 this.activateView();
+            },
+        });
+
+        this.addCommand({
+            id: "full-calendar-confirm-plan",
+            name: "Confirm past plan blocks into the log",
+            callback: async () => {
+                const file = targetDailyNote(this);
+                if (!file) {
+                    new Notice("今日の daily がまだありません。");
+                    return;
+                }
+                await confirmPlanFor(this, file);
+            },
+        });
+
+        this.addCommand({
+            id: "full-calendar-fill-plan",
+            name: "Fill the plan from the routine",
+            callback: async () => {
+                const file = targetDailyNote(this);
+                if (!file) {
+                    new Notice("今日の daily がまだありません。");
+                    return;
+                }
+                const n = await fillPlanFor(this, file);
+                new Notice(
+                    n > 0
+                        ? `Plan に決まった枠を ${n} 本入れました。`
+                        : "入れる枠はありません（Plan がもう埋まっているか、routine のノートがありません）。"
+                );
             },
         });
 
@@ -454,7 +526,7 @@ export default class FullCalendarPlugin extends Plugin {
     async saveSettings() {
         new Notice("Resetting the event cache with new settings...");
         await this.saveData(this.settings);
-        this.cache.reset(this.settings.calendarSources);
+        this.cache.reset(withPlanSource(this.settings.calendarSources));
         await this.cache.populate();
         this.cache.resync();
     }

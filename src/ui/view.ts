@@ -15,6 +15,7 @@ import {
     createSession,
     findRunningSessions,
     firstLinktext,
+    getPlanCalendarId,
     getWorklogCalendarId,
     linktextForEvent,
     startSessionFromBlock,
@@ -296,8 +297,16 @@ export class CalendarView extends ItemView {
     private decorateSession(
         input: EventInput,
         looks: Map<string, TaskLook>,
-        event: OFCEvent
+        event: OFCEvent,
+        plan = false
     ): EventInput {
+        // A block from Plan is still an intention: paler, dashed edge.
+        if (plan) {
+            input.classNames = [
+                ...(Array.isArray(input.classNames) ? input.classNames : []),
+                "ofc-event-plan",
+            ];
+        }
         // Running session (no endTime yet): render translucent — colors are
         // kept, opacity returns when it's stopped — and stretch the block to
         // "now" so it mirrors elapsed time instead of FullCalendar's fake
@@ -340,8 +349,18 @@ export class CalendarView extends ItemView {
         return input;
     }
 
+    /** Log or Plan: the two calendars whose events are blocks of time for
+     * a task or a hand, drawn in that task's (or the hands') colour. */
+    private isBlockSource(id: string | undefined): boolean {
+        return (
+            !!id &&
+            (id === getWorklogCalendarId(this.plugin) ||
+                id === getPlanCalendarId(this.plugin))
+        );
+    }
+
     translateSources() {
-        const worklogId = getWorklogCalendarId(this.plugin);
+        const planId = getPlanCalendarId(this.plugin);
         const looks = this.taskLooks();
         return this.plugin.cache.getAllEvents().map(
             ({ events, editable, color, id }): EventSourceInput => ({
@@ -353,8 +372,15 @@ export class CalendarView extends ItemView {
                         if (!input) {
                             return [];
                         }
-                        return id === worklogId
-                            ? [this.decorateSession(input, looks, e.event)]
+                        return this.isBlockSource(id)
+                            ? [
+                                  this.decorateSession(
+                                      input,
+                                      looks,
+                                      e.event,
+                                      id === planId
+                                  ),
+                              ]
                             : [input];
                     }),
                 editable,
@@ -643,10 +669,8 @@ export class CalendarView extends ItemView {
                     // is structural. A checkbox on a session line would get
                     // copied forward by the daily template's rollover, and
                     // TODO completion is the checkbox on the event itself.
-                    const worklogId = getWorklogCalendarId(this.plugin);
                     if (
-                        worklogId &&
-                        e.source?.id === worklogId &&
+                        this.isBlockSource(e.source?.id) &&
                         event.type === "single"
                     ) {
                         if (
@@ -832,9 +856,9 @@ export class CalendarView extends ItemView {
                         );
                     }
                 });
-                const worklogId = getWorklogCalendarId(this.plugin);
-                const looks = toAdd.some(
-                    ({ calendarId }) => calendarId === worklogId
+                const planId = getPlanCalendarId(this.plugin);
+                const looks = toAdd.some(({ calendarId }) =>
+                    this.isBlockSource(calendarId)
                 )
                     ? this.taskLooks()
                     : null;
@@ -846,11 +870,12 @@ export class CalendarView extends ItemView {
                     if (!eventInput) {
                         return;
                     }
-                    if (calendarId === worklogId && looks) {
+                    if (this.isBlockSource(calendarId) && looks) {
                         eventInput = this.decorateSession(
                             eventInput,
                             looks,
-                            event
+                            event,
+                            calendarId === planId
                         );
                     }
                     console.debug("adding event", {
@@ -874,10 +899,8 @@ export class CalendarView extends ItemView {
                 // the calendar, session blocks get their task's colors. This
                 // path serves remote revalidation AND startup load retries of
                 // local sources.
-                const looks =
-                    id === getWorklogCalendarId(this.plugin)
-                        ? this.taskLooks()
-                        : null;
+                const looks = this.isBlockSource(id) ? this.taskLooks() : null;
+                const isPlan = id === getPlanCalendarId(this.plugin);
                 this.fullCalendarView?.getEventSourceById(id)?.remove();
                 this.fullCalendarView?.addEventSource({
                     id,
@@ -889,7 +912,14 @@ export class CalendarView extends ItemView {
                                 return [];
                             }
                             return looks
-                                ? [this.decorateSession(input, looks, event)]
+                                ? [
+                                      this.decorateSession(
+                                          input,
+                                          looks,
+                                          event,
+                                          isPlan
+                                      ),
+                                  ]
                                 : [input];
                         }),
                     editable,
