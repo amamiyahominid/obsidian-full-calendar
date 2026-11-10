@@ -27,6 +27,7 @@ import {
 import { MemoPanel, renderMemoPanel } from "./memoPanel";
 import { blockIdFromEventId, findLineByBlockId } from "../core/dailyText";
 import {
+    addTaskToToday,
     collectTodayRows,
     reorderLines,
     nextRow,
@@ -63,60 +64,6 @@ const shortDate = (iso: string): string => {
 
 /** What the mobile "today" bar above the calendar shows. */
 export type TodaySummary = { open: number; first: string | null };
-
-function todoCalendarId(plugin: FullCalendarPlugin): string | null {
-    for (const source of plugin.cache.getAllEvents()) {
-        const cal = plugin.cache.getCalendarById(source.id);
-        if (cal instanceof DailyNoteCalendar && cal.todos) {
-            return source.id;
-        }
-    }
-    return null;
-}
-
-/** Put a task on today's list: one `- [ ] [[task]]` line in the daily
- * note's TODO. A task already listed today is left alone. */
-export async function addTaskToToday(
-    plugin: FullCalendarPlugin,
-    linktext: string
-): Promise<void> {
-    const calendarId = todoCalendarId(plugin);
-    if (!calendarId) {
-        new Notice(
-            'No TODO calendar configured. Add a "Daily Note" calendar with TODOs enabled in the Full Calendar settings.'
-        );
-        return;
-    }
-    const today = DateTime.now().toISODate();
-    const listed = plugin.cache
-        .getAllEvents()
-        .filter((s) => s.id === calendarId)
-        .flatMap((s) => s.events)
-        .some(
-            ({ event }) =>
-                event.type === "single" &&
-                event.date === today &&
-                soleLinktext(event.title) === linktext
-        );
-    if (listed) {
-        return;
-    }
-    try {
-        await plugin.cache.addEvent(calendarId, {
-            type: "single",
-            title: `[[${linktext}]]`,
-            date: today,
-            endDate: null,
-            allDay: true,
-            completed: false,
-        });
-    } catch (e) {
-        if (e instanceof Error) {
-            console.error(e);
-            new Notice(e.message);
-        }
-    }
-}
 
 const cardDone = (c: Card): boolean => isDoneStatus(c.event.status);
 
@@ -991,8 +938,19 @@ export function renderTaskTray(
 
         const weekHead = weekEl.createDiv({ cls: "ofc-tray-section" });
         weekHead.createSpan({ text: `今週 · ${weekOf(0)}` });
+        const weekTools = weekHead.createDiv({ cls: "ofc-tray-tools" });
+        // The week as a board: from the stacked list to the whole picture.
+        const boardBtn = weekTools.createEl("button", {
+            cls: "ofc-row-btn ofc-row-btn-quiet",
+        });
+        setIcon(boardBtn, "columns");
+        boardBtn.setAttr("aria-label", "kanban で見る");
+        boardBtn.onclick = (ev) => {
+            ev.stopPropagation();
+            plugin.activateKanbanView();
+        };
         // A new task for this week, straight from where the week is read.
-        const addBtn = weekHead.createEl("button", {
+        const addBtn = weekTools.createEl("button", {
             cls: "ofc-row-btn ofc-row-btn-quiet",
         });
         setIcon(addBtn, "plus");

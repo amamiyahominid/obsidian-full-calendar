@@ -34,6 +34,7 @@ import {
     startSession,
 } from "./core/worklog";
 import {
+    addTaskToToday,
     collectTodayRows,
     doneAndNext,
     nextRow,
@@ -42,7 +43,6 @@ import {
     startOrStop,
 } from "./core/today";
 import { pickTrayTask } from "./ui/taskPicker";
-import { addTaskToToday } from "./ui/tray";
 import { collectTaskCards } from "./core/cards";
 import { DateTime } from "luxon";
 import {
@@ -266,6 +266,29 @@ export default class FullCalendarPlugin extends Plugin {
         for (const leaf of workspace.getLeavesOfType(FULL_CALENDAR_VIEW_TYPE)) {
             (leaf.view as CalendarView).syncPoppedPanels?.();
         }
+    }
+
+    /**
+     * One key between the two surfaces: on the board, back to the calendar;
+     * anywhere else, to the board. The board is for deciding and the
+     * calendar for doing, so going there and coming back should cost
+     * nothing.
+     */
+    async toggleKanban() {
+        const { workspace } = this.app;
+        if (workspace.getActiveViewOfType(KanbanView)) {
+            const calendar = workspace.getLeavesOfType(
+                FULL_CALENDAR_VIEW_TYPE
+            )[0];
+            if (calendar) {
+                workspace.revealLeaf(calendar);
+                workspace.setActiveLeaf(calendar, { focus: true });
+            } else {
+                await this.activateView();
+            }
+            return;
+        }
+        await this.activateKanbanView();
     }
 
     async activateKanbanView() {
@@ -609,6 +632,12 @@ export default class FullCalendarPlugin extends Plugin {
                         : "入れる枠はありません（Plan がもう埋まっているか、routine のノートがありません）。"
                 );
             },
+        });
+
+        this.addCommand({
+            id: "full-calendar-toggle-kanban",
+            name: "Go to the kanban board / back to the calendar",
+            callback: () => this.toggleKanban(),
         });
 
         this.addCommand({

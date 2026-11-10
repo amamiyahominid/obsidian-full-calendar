@@ -1,4 +1,5 @@
 import { dueMeta, metaPart, renderRow, timeLabel } from "./row";
+import { addTaskToToday } from "../core/today";
 import {
     Card,
     collectIssueCards,
@@ -752,6 +753,21 @@ export class KanbanView extends ItemView {
                             .onClick(() => this.setSprint(id, null))
                     );
                 }
+                menu.addSeparator();
+            }
+            // Seen on the board, decided for today: onto today's list
+            // without going back to the tray. (Issues aren't things to do
+            // today; tasks are.)
+            if (this.boardScope !== "issue" && linktext && !done) {
+                menu.addItem((item) =>
+                    item
+                        .setTitle("今日に入れる")
+                        .setIcon("calendar-plus")
+                        .onClick(async () => {
+                            await addTaskToToday(this.plugin, linktext);
+                            new Notice("今日のリストに入れました。");
+                        })
+                );
                 menu.addSeparator();
             }
             menu.addItem((item) =>

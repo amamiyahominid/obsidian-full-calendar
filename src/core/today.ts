@@ -1,3 +1,4 @@
+import { Notice } from "obsidian";
 import { DateTime } from "luxon";
 import type FullCalendarPlugin from "../main";
 import DailyNoteCalendar from "../calendars/DailyNoteCalendar";
@@ -109,6 +110,60 @@ export const soleLinktext = (title: string): string | null => {
     const m = title.trim().match(/^\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]$/);
     return m ? m[1].trim() : null;
 };
+
+function todoCalendarId(plugin: FullCalendarPlugin): string | null {
+    for (const source of plugin.cache.getAllEvents()) {
+        const cal = plugin.cache.getCalendarById(source.id);
+        if (cal instanceof DailyNoteCalendar && cal.todos) {
+            return source.id;
+        }
+    }
+    return null;
+}
+
+/** Put a task on today's list: one `- [ ] [[task]]` line in the daily
+ * note's TODO. A task already listed today is left alone. */
+export async function addTaskToToday(
+    plugin: FullCalendarPlugin,
+    linktext: string
+): Promise<void> {
+    const calendarId = todoCalendarId(plugin);
+    if (!calendarId) {
+        new Notice(
+            'No TODO calendar configured. Add a "Daily Note" calendar with TODOs enabled in the Full Calendar settings.'
+        );
+        return;
+    }
+    const today = DateTime.now().toISODate();
+    const listed = plugin.cache
+        .getAllEvents()
+        .filter((s) => s.id === calendarId)
+        .flatMap((s) => s.events)
+        .some(
+            ({ event }) =>
+                event.type === "single" &&
+                event.date === today &&
+                soleLinktext(event.title) === linktext
+        );
+    if (listed) {
+        return;
+    }
+    try {
+        await plugin.cache.addEvent(calendarId, {
+            type: "single",
+            title: `[[${linktext}]]`,
+            date: today,
+            endDate: null,
+            allDay: true,
+            completed: false,
+        });
+    } catch (e) {
+        if (e instanceof Error) {
+            console.error(e);
+            new Notice(e.message);
+        }
+    }
+}
 
 /**
  * The session running for a row, if any. A row that stands for a task is
