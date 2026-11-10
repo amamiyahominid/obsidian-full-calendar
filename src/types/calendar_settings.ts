@@ -21,7 +21,16 @@ const calendarOptionsSchema = z.discriminatedUnion("type", [
         project: z.string().optional(),
         projectPath: z.string().optional(),
     }),
-    z.object({ type: z.literal("ical"), url: z.string().url() }),
+    // `hand`: for a remote calendar, what its events count towards when
+    // time is added up by hand — a note's name, or "-" for a calendar that
+    // isn't time spent (public holidays). The plugin only stores it; the
+    // vault's own summaries read it from here, next to the private URL it
+    // describes, instead of keeping a second list of calendars.
+    z.object({
+        type: z.literal("ical"),
+        url: z.string().url(),
+        hand: z.string().optional(),
+    }),
     z.object({
         type: z.literal("caldav"),
         name: z.string(),
@@ -29,6 +38,7 @@ const calendarOptionsSchema = z.discriminatedUnion("type", [
         homeUrl: z.string().url(),
         username: z.string(),
         password: z.string(),
+        hand: z.string().optional(),
     }),
 ]);
 

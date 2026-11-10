@@ -45,6 +45,9 @@ import {
 import { pickTrayTask } from "./ui/taskPicker";
 import { loadDailySettings } from "./core/dailyService";
 import { setNotifier } from "./core/notify";
+import { launchCreateModal } from "./ui/event_modal";
+import { workflowStages } from "./ui/colors";
+import { weekOf } from "./ui/sprint";
 import NoteKindCalendar, { isSetAside } from "./calendars/NoteKindCalendar";
 
 // The issues calendar's id (see NoteKindCalendar.identifier).
@@ -620,6 +623,20 @@ export default class FullCalendarPlugin extends Plugin {
                         : "入れる枠はありません（Plan がもう埋まっているか、routine のノートがありません）。"
                 );
             },
+        });
+
+        this.addCommand({
+            id: "full-calendar-add-task",
+            name: "Add a task for this week",
+            callback: () =>
+                launchCreateModal(this, {
+                    type: "single",
+                    allDay: true,
+                    date: DateTime.now().toISODate(),
+                    completed: false,
+                    status: workflowStages()[0],
+                    sprint: weekOf(0),
+                }),
         });
 
         this.addCommand({

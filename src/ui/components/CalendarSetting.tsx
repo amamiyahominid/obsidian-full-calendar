@@ -115,15 +115,18 @@ function Username<T extends Partial<CalendarInfo>>({ source }: BasicProps<T>) {
 interface CalendarSettingsProps {
     setting: Partial<CalendarInfo>;
     onColorChange: (s: string) => void;
+    onHandChange: (s: string) => void;
     deleteCalendar: () => void;
 }
 
 export const CalendarSettingRow = ({
     setting,
     onColorChange,
+    onHandChange,
     deleteCalendar,
 }: CalendarSettingsProps) => {
     const isCalDAV = setting.type === "caldav";
+    const isRemote = setting.type === "ical" || setting.type === "caldav";
     // Work-log session blocks are painted with their linked task's colors,
     // so a color choice here would be misleading (same reasoning as the
     // add-calendar modal). TODO calendars keep it — their blocks genuinely
@@ -160,6 +163,18 @@ export const CalendarSettingRow = ({
             )}
             {isCalDAV && <NameSetting source={setting} />}
             {isCalDAV && <Username source={setting} />}
+            {isRemote && (
+                // Which hand this calendar's time counts towards ("-" for a
+                // calendar that isn't time spent, like public holidays).
+                <input
+                    type="text"
+                    placeholder="手"
+                    aria-label="手"
+                    value={(setting as { hand?: string }).hand ?? ""}
+                    onChange={(e) => onHandChange(e.target.value)}
+                    style={{ maxWidth: "25%", minWidth: "5rem" }}
+                />
+            )}
             {!isWorklog && (
                 <input
                     style={{ maxWidth: "25%", minWidth: "3rem" }}
@@ -208,6 +223,19 @@ export class CalendarSettings extends React.Component<
                                 sources: [
                                     ...state.sources.slice(0, idx),
                                     { ...state.sources[idx], color },
+                                    ...state.sources.slice(idx + 1),
+                                ],
+                                dirty: true,
+                            }))
+                        }
+                        onHandChange={(hand) =>
+                            this.setState((state, props) => ({
+                                sources: [
+                                    ...state.sources.slice(0, idx),
+                                    {
+                                        ...state.sources[idx],
+                                        hand: hand.trim() || undefined,
+                                    } as CalendarInfo,
                                     ...state.sources.slice(idx + 1),
                                 ],
                                 dirty: true,
