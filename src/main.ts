@@ -26,7 +26,25 @@ import {
     FullCalendarSettingTab,
 } from "./ui/settings";
 import { CalendarInfo, PLUGIN_SLUG } from "./types";
-import { LOG_HEADING, PLAN_HEADING } from "./core/worklog";
+import {
+    findRunningSessions,
+    linktextForEvent,
+    LOG_HEADING,
+    PLAN_HEADING,
+    startSession,
+} from "./core/worklog";
+import {
+    collectTodayRows,
+    doneAndNext,
+    nextRow,
+    plainTitle,
+    soleLinktext,
+    startOrStop,
+} from "./core/today";
+import { pickTrayTask } from "./ui/taskPicker";
+import { addTaskToToday } from "./ui/tray";
+import { collectTaskCards } from "./core/cards";
+import { DateTime } from "luxon";
 import {
     confirmPlanFor,
     dailyDateOf,
@@ -165,6 +183,75 @@ export default class FullCalendarPlugin extends Plugin {
     }
 
     /**
+     * What is being worked on, where it can always be seen: the running
+     * line and how long it has run, or — with nothing running — the line
+     * the start key would start. Clicking it is that key. Desktop only
+     * (phones have no status bar).
+     */
+    private statusCallback: UpdateViewCallback | null = null;
+
+    private setupStatusBar() {
+        if (Platform.isMobile) {
+            return;
+        }
+        const el = this.addStatusBarItem();
+        el.addClass("ofc-status", "mod-clickable");
+        el.onclick = () => startOrStop(this);
+        // A task's line is just its link; show the task's title instead.
+        const label = (title: string) => {
+            const link = soleLinktext(title);
+            const task = link
+                ? collectTaskCards(this).find(
+                      (c) => linktextForEvent(this, c.id) === link
+                  )
+                : undefined;
+            const text = plainTitle(task?.event.title || title);
+            return text.length > 32 ? text.slice(0, 31) + "…" : text;
+        };
+        const paint = () => {
+            try {
+                const running = findRunningSessions(this);
+                const session = running[0];
+                el.toggleClass("ofc-status-running", !!session);
+                if (
+                    session &&
+                    session.event.type === "single" &&
+                    !session.event.allDay
+                ) {
+                    const start = DateTime.fromISO(
+                        `${session.event.date}T${session.event.startTime}`
+                    );
+                    const minutes = Math.max(
+                        0,
+                        Math.floor(
+                            DateTime.now().diff(start, "minutes").minutes
+                        )
+                    );
+                    const elapsed =
+                        minutes >= 60
+                            ? `${Math.floor(minutes / 60)}:${String(
+                                  minutes % 60
+                              ).padStart(2, "0")}`
+                            : `${minutes}分`;
+                    el.setText(`● ${label(session.event.title)}  ${elapsed}`);
+                    el.setAttr("aria-label", "押すと止まる");
+                    return;
+                }
+                const next = nextRow(collectTodayRows(this), running);
+                el.setText(next ? `次：${label(next.title)}` : "");
+                el.setAttr("aria-label", next ? "押すと始まる" : "");
+            } catch (e) {
+                // Painted again on the next tick; a status line must never
+                // be what breaks the plugin.
+                console.debug(e);
+            }
+        };
+        this.statusCallback = this.cache.on("update", paint);
+        this.registerInterval(window.setInterval(paint, 30 * 1000));
+        paint();
+    }
+
+    /**
      * Close the tray or memo pane so the calendar shows its built-in column
      * again. The calendar also notices on its own (layout-change), but that
      * event isn't guaranteed to follow a detach right away — tell it.
@@ -264,6 +351,7 @@ export default class FullCalendarPlugin extends Plugin {
                         }, 1500);
                     })
                 );
+                this.setupStatusBar();
                 // Today always has its note: created a little after start-up
                 // and, for an app left open overnight, soon after midnight.
                 // Desktop only — a phone opened in the morning hasn't synced
@@ -440,6 +528,58 @@ export default class FullCalendarPlugin extends Plugin {
             },
         });
 
+        // Start and stop without aiming: the list says what comes next.
+        this.addCommand({
+            id: "full-calendar-start-or-stop",
+            name: "Start the next line / stop the running one",
+            callback: async () => {
+                const result = await startOrStop(this);
+                if (result === "nothing") {
+                    new Notice("今日のリストに、始める行がありません。");
+                }
+            },
+        });
+
+        this.addCommand({
+            id: "full-calendar-done-and-next",
+            name: "Finish the running line and start the next",
+            callback: async () => {
+                const result = await doneAndNext(this);
+                if (result === "finished") {
+                    new Notice("今日のリストは、これで全部です。");
+                } else if (result === "nothing") {
+                    new Notice("今日のリストに、始める行がありません。");
+                }
+            },
+        });
+
+        this.addCommand({
+            id: "full-calendar-pick-and-start",
+            name: "Pick something and start it",
+            callback: async () => {
+                const title = await pickTrayTask(
+                    this,
+                    DateTime.now().toISODate()
+                );
+                if (!title) {
+                    return;
+                }
+                // A task picked to work on now IS on today's list; say so
+                // in the note. (A hand is time, not a thing to do — it gets
+                // no line, only its session.)
+                const link = soleLinktext(title);
+                if (
+                    link &&
+                    collectTaskCards(this).some(
+                        (c) => linktextForEvent(this, c.id) === link
+                    )
+                ) {
+                    await addTaskToToday(this, link);
+                }
+                await startSession(this, title);
+            },
+        });
+
         this.addCommand({
             id: "full-calendar-confirm-plan",
             name: "Confirm past plan blocks into the log",
@@ -525,6 +665,10 @@ export default class FullCalendarPlugin extends Plugin {
         if (this.actualsCallback) {
             this.cache.off("update", this.actualsCallback);
             this.actualsCallback = null;
+        }
+        if (this.statusCallback) {
+            this.cache.off("update", this.statusCallback);
+            this.statusCallback = null;
         }
         this.reminderService.stop();
         this.app.workspace.detachLeavesOfType(FULL_CALENDAR_VIEW_TYPE);

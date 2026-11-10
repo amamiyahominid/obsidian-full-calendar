@@ -228,6 +228,25 @@ export async function stopSession(
         session.event.date === now.toISODate()
             ? now.toFormat("HH:mm")
             : "23:59";
+    // Started and stopped within the same minute: a slip of the finger,
+    // not work. Leave no line behind rather than a zero-minute block.
+    if (
+        session.event.type === "single" &&
+        !session.event.allDay &&
+        session.event.date === now.toISODate() &&
+        session.event.startTime === endTime
+    ) {
+        try {
+            await plugin.cache.deleteEvent(session.id);
+            return true;
+        } catch (e) {
+            if (e instanceof Error) {
+                console.error(e);
+                new Notice(e.message);
+            }
+            return false;
+        }
+    }
     try {
         await plugin.cache.updateEventWithId(session.id, {
             ...session.event,

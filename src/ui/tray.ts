@@ -1,4 +1,4 @@
-import { Notice, Platform, setIcon } from "obsidian";
+import { Notice, Platform, setIcon, TFile } from "obsidian";
 import { DateTime } from "luxon";
 import { Draggable } from "@fullcalendar/interaction";
 import type FullCalendarPlugin from "../main";
@@ -25,6 +25,17 @@ import {
     RunningSession,
 } from "../core/worklog";
 import { MemoPanel, renderMemoPanel } from "./memoPanel";
+import { blockIdFromEventId, findLineByBlockId } from "../core/dailyText";
+import {
+    collectTodayRows,
+    reorderLines,
+    nextRow,
+    plainTitle,
+    sessionOfRow,
+    soleLinktext,
+    todoKey,
+    TodayRow,
+} from "../core/today";
 import { dueMeta, metaPart, renderRow, RowButton, timeLabel } from "./row";
 
 /*
@@ -45,13 +56,6 @@ import { dueMeta, metaPart, renderRow, RowButton, timeLabel } from "./row";
 
 export type TaskTray = { refresh: () => void; destroy: () => void };
 
-/** "[[a|b]] rest" → "b rest": TODO lines read as text, not as markup. */
-const plainTitle = (title: string): string =>
-    title.replace(
-        /\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]/g,
-        (_m, target: string, alias?: string) => alias || target
-    );
-
 const shortDate = (iso: string): string => {
     const d = DateTime.fromISO(iso);
     return d.isValid ? `${d.month}/${d.day}` : iso;
@@ -59,12 +63,6 @@ const shortDate = (iso: string): string => {
 
 /** What the mobile "today" bar above the calendar shows. */
 export type TodaySummary = { open: number; first: string | null };
-
-/** The task a TODO line stands for, when the line is nothing but a link. */
-const soleLinktext = (title: string): string | null => {
-    const m = title.trim().match(/^\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]$/);
-    return m ? m[1].trim() : null;
-};
 
 function todoCalendarId(plugin: FullCalendarPlugin): string | null {
     for (const source of plugin.cache.getAllEvents()) {
@@ -78,7 +76,7 @@ function todoCalendarId(plugin: FullCalendarPlugin): string | null {
 
 /** Put a task on today's list: one `- [ ] [[task]]` line in the daily
  * note's TODO. A task already listed today is left alone. */
-async function addTaskToToday(
+export async function addTaskToToday(
     plugin: FullCalendarPlugin,
     linktext: string
 ): Promise<void> {
@@ -383,86 +381,6 @@ export function trayCards(
     return cards.sort((a, b) => Number(cardDone(a)) - Number(cardDone(b)));
 }
 
-type TrayTodo = {
-    id: string;
-    title: string;
-    date: string;
-    done: boolean;
-    /** Line in its daily note — today's list reads in written order. */
-    line: number;
-};
-
-// Sticky keys for TODO rows. Event IDs churn when the daily note is edited,
-// so key on what identifies the line to a human instead.
-const todoKey = (date: string, title: string) => `${date}::${title}`;
-
-/**
- * Day-scoped TODO lines for the tray. Open ones up to today, oldest (most
- * forgotten) first; then today's checked ones — checking a box shouldn't
- * make the line vanish (mis-taps get unticked, and the list doubles as an
- * at-a-glance "what got done today"). Checked TODOs from PAST days are
- * history and stay hidden, EXCEPT ones `isSticky` vouches for: checking an
- * old TODO must not make it disappear mid-session.
- */
-function collectTrayTodos(
-    plugin: FullCalendarPlugin,
-    isSticky?: (key: string) => boolean
-): TrayTodo[] {
-    const today = DateTime.now().toISODate();
-    const todos: TrayTodo[] = [];
-    for (const source of plugin.cache.getAllEvents()) {
-        const cal = plugin.cache.getCalendarById(source.id);
-        if (!(cal instanceof DailyNoteCalendar) || !cal.todos) {
-            continue;
-        }
-        for (const { id, event } of source.events) {
-            // Only checkbox lines carry a completed value; work-log sessions
-            // and plain lines don't.
-            if (
-                event.type !== "single" ||
-                event.completed === undefined ||
-                event.completed === null
-            ) {
-                continue;
-            }
-            if (!event.date || event.date > today) {
-                continue;
-            }
-            const done = event.completed !== false;
-            if (
-                done &&
-                event.date !== today &&
-                !(isSticky?.(todoKey(event.date, event.title)) ?? false)
-            ) {
-                continue;
-            }
-            let line = 0;
-            try {
-                line =
-                    plugin.cache.getInfoForEditableEvent(id).location
-                        ?.lineNumber ?? 0;
-            } catch {
-                // Not in the store any more; order it first.
-            }
-            todos.push({
-                id,
-                title: event.title,
-                date: event.date,
-                done,
-                line,
-            });
-        }
-    }
-    // Done sinks last, mirroring the task cards; open ones oldest day
-    // first, and within a day in the order they were written — the daily
-    // note's order is the order to work in.
-    return todos.sort((a, b) =>
-        a.done !== b.done
-            ? Number(a.done) - Number(b.done)
-            : a.date.localeCompare(b.date) || a.line - b.line
-    );
-}
-
 export function renderTaskTray(
     plugin: FullCalendarPlugin,
     el: HTMLElement,
@@ -587,7 +505,7 @@ export function renderTaskTray(
             return !!link && seenUnfinished.has(link);
         });
 
-        const todos = collectTrayTodos(plugin, (key) => seenOpenTodos.has(key));
+        const todos = collectTodayRows(plugin, (key) => seenOpenTodos.has(key));
         for (const todo of todos) {
             if (!todo.done) {
                 seenOpenTodos.add(todoKey(todo.date, todo.title));
@@ -618,7 +536,7 @@ export function renderTaskTray(
             parent: HTMLElement,
             card: Card,
             linktext: string,
-            todo?: TrayTodo
+            todo?: TodayRow
         ) => {
             const session = runningByLink.get(linktext);
             const done = todo ? todo.done : cardDone(card);
@@ -682,10 +600,7 @@ export function renderTaskTray(
                     ? {
                           checked: done,
                           label: done ? "Mark not done" : "Mark done",
-                          onToggle: () =>
-                              plugin.cache.processEvent(todo.id, (e) =>
-                                  toggleTask(e, !done)
-                              ),
+                          onToggle: () => tick(todo, !done),
                       }
                     : undefined,
                 meta: (metaEl) => {
@@ -733,6 +648,7 @@ export function renderTaskTray(
                     launchEditModal(plugin, card.id);
                 }
             });
+            return cardEl;
         };
 
         // --- 今日: the daily note's TODO lines, up to today. Rolling forward
@@ -772,22 +688,247 @@ export function renderTaskTray(
                 text: `${todos.length - openCount} / ${todos.length}`,
             });
         }
+        // Today's own open lines can be dragged into a new order, which is
+        // written back as the order of the lines in the daily note — the
+        // list stays the one statement of what comes next. (Lines carried
+        // from earlier days sit above, done ones below; neither moves.)
+        const reorderToday = async (ids: string[]) => {
+            const byId = new Map(todos.map((t) => [t.id, t]));
+            const rows = ids
+                .map((id) => byId.get(id))
+                .filter((t): t is TodayRow => !!t);
+            const path = (() => {
+                try {
+                    return plugin.cache.getInfoForEditableEvent(rows[0].id)
+                        .location?.path;
+                } catch {
+                    return undefined;
+                }
+            })();
+            const file = path
+                ? plugin.app.vault.getAbstractFileByPath(path)
+                : null;
+            if (rows.length < 2 || !(file instanceof TFile)) {
+                return;
+            }
+            const lines = (await plugin.app.vault.read(file)).split("\n");
+            const order = rows.map((t) => {
+                const blockId = blockIdFromEventId(t.id);
+                const at = blockId ? findLineByBlockId(lines, blockId) : -1;
+                return at >= 0 ? at : t.line;
+            });
+            // Refuse rather than shuffle the wrong lines: every index must
+            // be a distinct list line of this note.
+            if (
+                new Set(order).size !== order.length ||
+                order.some((i) => !/^\s*-\s/.test(lines[i] ?? ""))
+            ) {
+                new Notice(
+                    "並べ替えられませんでした。もう一度試してください。"
+                );
+                refresh();
+                return;
+            }
+            await plugin.app.vault.modify(
+                file,
+                reorderLines(lines, order).join("\n")
+            );
+        };
+        const makeTodayDraggable = (rowEl: HTMLElement, todo: TodayRow) => {
+            if (todo.done || todo.date !== today) {
+                return;
+            }
+            rowEl.dataset.rowId = todo.id;
+            rowEl.addEventListener("pointerdown", (ev) => {
+                // Checkbox and button presses are actions, not drags.
+                if ((ev.target as HTMLElement).closest("input, button")) {
+                    return;
+                }
+                const startX = ev.clientX;
+                const startY = ev.clientY;
+                const homeNext = rowEl.nextSibling;
+                let lifted = !Platform.isMobile;
+                let active = false;
+                let moved = false;
+                const liftTimer = Platform.isMobile
+                    ? window.setTimeout(() => {
+                          lifted = true;
+                      }, 350)
+                    : null;
+                const onTouchMove = (e: TouchEvent) => {
+                    if (active) {
+                        e.preventDefault();
+                    }
+                };
+                rowEl.addEventListener("touchmove", onTouchMove, {
+                    passive: false,
+                });
+                const inList = (e: PointerEvent) => {
+                    const r = todayEl.getBoundingClientRect();
+                    return (
+                        e.clientX >= r.left &&
+                        e.clientX <= r.right &&
+                        e.clientY >= r.top &&
+                        e.clientY <= r.bottom
+                    );
+                };
+                const setActive = (on: boolean) => {
+                    active = on;
+                    rowEl.toggleClass("ofc-tray-reordering", on);
+                    document.body.toggleClass("ofc-tray-reorder-active", on);
+                };
+                const teardown = () => {
+                    if (liftTimer !== null) {
+                        window.clearTimeout(liftTimer);
+                    }
+                    document.removeEventListener("pointermove", onMove);
+                    document.removeEventListener("pointerup", onUp);
+                    document.removeEventListener("pointercancel", onUp);
+                    rowEl.removeEventListener("touchmove", onTouchMove);
+                };
+                const onMove = (e: PointerEvent) => {
+                    if (!moved) {
+                        if (
+                            Math.abs(e.clientX - startX) < 5 &&
+                            Math.abs(e.clientY - startY) < 5
+                        ) {
+                            return;
+                        }
+                        moved = true;
+                        // Mobile: movement before the long-press is a scroll.
+                        if (!lifted) {
+                            teardown();
+                            return;
+                        }
+                    }
+                    if (!lifted) {
+                        return;
+                    }
+                    if (!inList(e)) {
+                        // Out toward the calendar: back home, and
+                        // FullCalendar's own drag carries on from here.
+                        if (active) {
+                            setActive(false);
+                            todayEl.insertBefore(rowEl, homeNext);
+                        }
+                        return;
+                    }
+                    if (!active) {
+                        setActive(true);
+                    }
+                    const others = (
+                        Array.from(
+                            todayEl.querySelectorAll("[data-row-id]")
+                        ) as HTMLElement[]
+                    ).filter((el) => el !== rowEl);
+                    const before = others.find((el) => {
+                        const r = el.getBoundingClientRect();
+                        return e.clientY < r.top + r.height / 2;
+                    });
+                    if (before) {
+                        todayEl.insertBefore(rowEl, before);
+                    } else if (others.length > 0) {
+                        others[others.length - 1].after(rowEl);
+                    }
+                };
+                const onUp = async () => {
+                    teardown();
+                    if (!active) {
+                        return;
+                    }
+                    setActive(false);
+                    const ids = (
+                        Array.from(
+                            todayEl.querySelectorAll("[data-row-id]")
+                        ) as HTMLElement[]
+                    ).map((el) => el.dataset.rowId as string);
+                    if (
+                        ids.join("\n") !==
+                        todos
+                            .filter((t) => !t.done && t.date === today)
+                            .map((t) => t.id)
+                            .join("\n")
+                    ) {
+                        await reorderToday(ids);
+                    }
+                };
+                document.addEventListener("pointermove", onMove);
+                document.addEventListener("pointerup", onUp);
+                document.addEventListener("pointercancel", onUp);
+            });
+        };
+        // What the "start" key would start. Marked in the list so the key
+        // never has to be aimed, or guessed at.
+        const next = nextRow(todos, running);
+        // Ticking a line that is being worked on also stops its clock:
+        // finishing is one act, not two.
+        const tick = async (todo: TodayRow, done: boolean) => {
+            const session = done ? sessionOfRow(todo, running) : undefined;
+            if (session) {
+                await stopSession(plugin, session);
+            }
+            await plugin.cache.processEvent(todo.id, (e) =>
+                toggleTask(e, done)
+            );
+        };
+        // Whatever is running is always here, at the top of today — also a
+        // session with no line on the list (a hand picked on the spot, a
+        // block started from the calendar). Such a row is only shown, never
+        // written to the note, and goes when the session stops.
+        for (const session of running) {
+            // One left running from an earlier day already has its warning
+            // row above, with its own Stop.
+            if (
+                (session.event.date ?? today) < today ||
+                todos.some((t) => sessionOfRow(t, [session]))
+            ) {
+                continue;
+            }
+            const link = firstLinktext(session.event.title);
+            const card = link ? allCardsByLink.get(link) : undefined;
+            renderRow(todayEl, {
+                cls: ["ofc-tray-running-extra"],
+                title: card
+                    ? card.event.title
+                    : plainTitle(session.event.title),
+                color: card?.sourceColor,
+                running: true,
+                meta: (metaEl) => {
+                    if (card) {
+                        metaPart(metaEl, projectLabel(card.calendarId));
+                    }
+                    metaPart(
+                        metaEl,
+                        `● ${
+                            session.event.date === today
+                                ? ""
+                                : shortDate(session.event.date ?? "") + " "
+                        }${session.event.startTime} -`
+                    );
+                },
+                buttons: [
+                    {
+                        icon: "square",
+                        label: "Stop session",
+                        onClick: () => stopSession(plugin, session),
+                    },
+                ],
+            });
+        }
         for (const todo of todos) {
             const link = soleLinktext(todo.title);
             const card = link ? allCardsByLink.get(link) : undefined;
             if (link && card) {
-                renderCard(todayEl, card, link, todo);
+                const cardEl = renderCard(todayEl, card, link, todo);
+                cardEl.toggleClass("ofc-row-next", todo.id === next?.id);
+                makeTodayDraggable(cardEl, todo);
                 continue;
             }
             // A line that isn't a task — a hand, or plain words — can be
             // worked on just the same. Its session is logged under the
             // line's own text, so a hand named in it is what the hours
             // count towards; the running one is found by that same text.
-            const todoSession = running.find(
-                (r) =>
-                    r.event.date === today &&
-                    r.event.title.trim() === todo.title.trim()
-            );
+            const todoSession = sessionOfRow(todo, running);
             const { el: row } = renderRow(todayEl, {
                 cls: ["ofc-tray-todo"],
                 title: plainTitle(todo.title),
@@ -810,10 +951,7 @@ export function renderTaskTray(
                 check: {
                     checked: todo.done,
                     label: todo.done ? "Mark not done" : "Mark done",
-                    onToggle: () =>
-                        plugin.cache.processEvent(todo.id, (e) =>
-                            toggleTask(e, !todo.done)
-                        ),
+                    onToggle: () => tick(todo, !todo.done),
                 },
                 meta: (metaEl) => {
                     if (todoSession) {
@@ -826,6 +964,8 @@ export function renderTaskTray(
             });
             row.dataset.todoId = todo.id;
             row.dataset.todoTitle = todo.title;
+            row.toggleClass("ofc-row-next", todo.id === next?.id);
+            makeTodayDraggable(row, todo);
             suppressDragClick(row, () => {
                 launchEditModal(plugin, todo.id);
             });

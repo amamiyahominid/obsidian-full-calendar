@@ -1027,3 +1027,39 @@ textarea.ofc-tray-memo-editor:focus {
 .ofc-kanban-cards .ofc-row {
     margin: 0;
 }
+
+/* ---- What comes next, and what is running ---- */
+
+/* The line the start key would start: framed in the accent colour, so the
+   key never has to be aimed. The project's bar on the left is kept. */
+.ofc-row.ofc-row-next {
+    border-top-color: var(--interactive-accent);
+    border-right-color: var(--interactive-accent);
+    border-bottom-color: var(--interactive-accent);
+}
+
+.ofc-row.ofc-row-next .ofc-row-title::before {
+    content: "次 ";
+    font-size: var(--font-ui-smaller);
+    font-weight: 600;
+    color: var(--text-accent);
+}
+
+/* A row being dragged to a new place in today's list. */
+.ofc-tray-today .ofc-row.ofc-tray-reordering {
+    opacity: 0.6;
+    border-style: dashed;
+}
+
+/* Status bar: the running line (green dot) or the next one. */
+.status-bar-item.ofc-status {
+    max-width: 28em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.status-bar-item.ofc-status.ofc-status-running {
+    color: var(--color-green);
+    font-weight: 600;
+}
