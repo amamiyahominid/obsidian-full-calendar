@@ -159,3 +159,27 @@ export function blockIdFromEventId(id: string | undefined): string | null {
     const at = id.lastIndexOf("^");
     return at >= 0 && at < id.length - 1 ? id.slice(at + 1) : null;
 }
+
+/**
+ * An empty list line: a bullet or an unticked checkbox with nothing after
+ * it. The daily template leaves one under a heading as a place to type; a
+ * line written by the app takes that place instead of leaving it empty
+ * above the real ones.
+ */
+export function isPlaceholderLine(line: string): boolean {
+    return /^\s*[-*+]\s*(\[ \])?\s*$/.test(line);
+}
+
+/** The first empty list line in [from, to), or -1. */
+export function findPlaceholder(
+    lines: string[],
+    from: number,
+    to: number
+): number {
+    for (let i = from; i < Math.min(to, lines.length); i++) {
+        if (isPlaceholderLine(lines[i])) {
+            return i;
+        }
+    }
+    return -1;
+}

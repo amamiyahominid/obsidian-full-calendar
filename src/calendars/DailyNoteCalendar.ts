@@ -1,3 +1,4 @@
+import { findPlaceholder } from "../core/dailyText";
 import { TFile } from "obsidian";
 import { EventPathLocation } from "../core/EventStore";
 import {
@@ -264,6 +265,12 @@ export const addToHeading = (
                 boundary = i;
                 break;
             }
+        }
+        // The template's empty line is where the first entry goes.
+        const placeholder = findPlaceholder(lines, firstEntryLine, boundary);
+        if (placeholder >= 0) {
+            lines[placeholder] = listItem;
+            return { page: lines.join("\n"), lineNumber: placeholder };
         }
         let lineNumber = boundary;
         while (

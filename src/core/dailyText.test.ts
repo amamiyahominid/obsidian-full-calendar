@@ -9,6 +9,8 @@ import {
     newBlockId,
     sectionUnder,
     stripBlockId,
+    isPlaceholderLine,
+    findPlaceholder,
 } from "./dailyText";
 import {
     addToHeading,
@@ -136,5 +138,22 @@ describe("lines with ids, read and written", () => {
         expect(written).not.toContain("[id::");
         // And it reads back as the same event.
         expect(getInlineEventFromLine(written, globals)).toEqual(event);
+    });
+});
+
+describe("placeholders", () => {
+    it("knows an empty bullet and an empty unticked checkbox", () => {
+        for (const line of ["- [ ] ", "- [ ]", "- ", "-", "  - [ ]  "]) {
+            expect(isPlaceholderLine(line)).toBe(true);
+        }
+        for (const line of ["- [ ] a", "- [x] ", "- a", "", "---", "## TODO"]) {
+            expect(isPlaceholderLine(line)).toBe(false);
+        }
+    });
+
+    it("finds the first one inside a range only", () => {
+        const lines = ["## TODO", "", "- [ ] ", "", "---", "## Memo", "- "];
+        expect(findPlaceholder(lines, 1, 4)).toBe(2);
+        expect(findPlaceholder(lines, 3, 4)).toBe(-1);
     });
 });

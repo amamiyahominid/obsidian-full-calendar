@@ -103,6 +103,28 @@ describe("addToHeading", () => {
             },
         } as HeadingCache);
 
+    it("takes the template's empty line instead of leaving it above", () => {
+        const page = [
+            "## 作業ログ",
+            "",
+            "- [ ] ",
+            "",
+            "---",
+            "",
+            "## メモ",
+        ].join("\n");
+        const { page: result, lineNumber } = addToHeading(page, {
+            heading: heading(0),
+            item: session,
+            headingText: "作業ログ",
+        });
+        const lines = result.split("\n");
+        expect(lineNumber).toBe(2);
+        expect(lines[2]).toContain("[[APIリファクタ]]");
+        expect(lines).toHaveLength(7);
+        expect(lines.filter((l) => /^- \[ \]\s*$/.test(l))).toEqual([]);
+    });
+
     it("appends at the end of the heading's section, before the next heading", () => {
         const page = [
             "## 作業ログ",

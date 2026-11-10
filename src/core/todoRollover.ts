@@ -3,6 +3,7 @@ import { DateTime } from "luxon";
 import DailyNoteCalendar from "../calendars/DailyNoteCalendar";
 import type FullCalendarPlugin from "../main";
 import { dailyFile, ensureDaily, todayISO } from "./dailyService";
+import { findPlaceholder } from "./dailyText";
 
 /*
  * Plugin-owned TODO rollover.
@@ -79,6 +80,12 @@ export function appendTodosUnderHeading(
             boundary = i;
             break;
         }
+    }
+    // The template's empty line is where the first of them goes.
+    const placeholder = findPlaceholder(lines, headingLine + 1, boundary);
+    if (placeholder >= 0) {
+        lines.splice(placeholder, 1, ...todoLines);
+        return lines.join("\n");
     }
     let insertAt = boundary;
     while (insertAt > headingLine + 1 && lines[insertAt - 1].trim() === "") {
