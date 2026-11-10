@@ -124,11 +124,11 @@ describe("notes found by kind and project", () => {
         expect(paths).toEqual(["projects/01_alpha/tasks/b-stray.md"]);
     });
 
-    it("gathers issues by kind alone", async () => {
-        const cal = new NoteKindCalendar(vault(), "#000", "issue");
+    it("leaves notes of other kinds alone", async () => {
+        const cal = new NoteKindCalendar(vault(), "#000", "task");
         const paths = (await cal.getEvents()).map(([, loc]) => loc.file.path);
-        expect(paths).toEqual(["elsewhere/q.md"]);
-        expect(cal.id).toBe("local::kind/issue");
+        expect(paths).not.toContain("elsewhere/q.md");
+        expect(paths.length).toBeGreaterThan(0);
     });
 
     it("names itself after its project", () => {

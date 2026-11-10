@@ -1,19 +1,30 @@
-import { dueMeta, metaPart, renderRow, timeLabel } from "./row";
-import { addTaskToToday } from "../core/today";
+import { dueMeta, metaPart, renderRow, RowButton, timeLabel } from "./row";
+import { addTaskToToday, collectTodayRows, soleLinktext } from "../core/today";
+import { applyFx, elapsedPart, markFx, Tracker } from "./fx";
+import { deleteWithUndo } from "./undo";
+import { Card, collectTaskCards, projectLabel } from "../core/cards";
 import {
-    Card,
-    collectIssueCards,
-    collectTaskCards,
-    projectLabel,
-} from "../core/cards";
-import { ItemView, Menu, Notice, setIcon, WorkspaceLeaf } from "obsidian";
+    ItemView,
+    Menu,
+    Notice,
+    Platform,
+    setIcon,
+    WorkspaceLeaf,
+} from "obsidian";
 import { DateTime } from "luxon";
 import FullCalendarPlugin from "../main";
 import { OFCEvent, PLUGIN_SLUG } from "../types";
 import { UpdateViewCallback } from "../core/EventCache";
-import { getStatusColor, isDoneStatus, workflowStages } from "./colors";
+import { isDoneStatus, workflowStages } from "./colors";
 import { openFileForEvent } from "./actions";
-import { actualMinutesByLinktext, linktextForEvent } from "../core/worklog";
+import {
+    actualMinutesByLinktext,
+    findRunningSessions,
+    firstLinktext,
+    linktextForEvent,
+    RunningSession,
+    stopSession,
+} from "../core/worklog";
 import { launchCreateModal, launchEditModal } from "./event_modal";
 import { FULL_CALENDAR_VIEW_TYPE } from "./view";
 import {
@@ -32,9 +43,7 @@ export const FULL_CALENDAR_KANBAN_VIEW_TYPE = "full-calendar-kanban-view";
 // to it.
 const PLANNING_WEEKS_AHEAD = 3;
 
-// Top-level board tab: the issues folder or project tasks.
-type BoardScope = "issue" | "projects";
-// Axis within the Projects tab.
+// The board's axis.
 type GroupBy = "status" | "sprint";
 
 /**
@@ -98,31 +107,9 @@ const cardStatus = (e: Card["event"]): string =>
 
 const cardDone = (e: Card["event"]): boolean => isDoneStatus(e.status);
 
-// Projects an issue is tied to, from its `project:` frontmatter. Tasks take
-// their project from the folder they live in, so this is issues-only.
-const cardProjects = (e: Card["event"]): string[] => e.project ?? [];
-
-// Sentinel for the Issues project dropdown: show only issues that aren't on
-// any project — questions with no year-scale container to answer them.
-const NO_PROJECT = "__none__";
-
-/**
- * The colour a project reads as everywhere: its own calendar source's.
- * Tasks already carry it on the card (`sourceColor`), but an issue names its
- * project in frontmatter and has to look it up, so that one project is one
- * colour on every surface.
- */
-export const projectColor = (
-    plugin: FullCalendarPlugin,
-    name: string
-): string | null => {
-    for (const source of plugin.cache.getAllEvents()) {
-        if (projectLabel(source.id) === name) {
-            return source.color ?? null;
-        }
-    }
-    return null;
-};
+/** A week as people say it: this one and the next by name, others as is. */
+export const weekLabel = (week: string): string =>
+    week === weekOf(0) ? "今週" : week === weekOf(1) ? "来週" : week;
 
 export class KanbanView extends ItemView {
     plugin: FullCalendarPlugin;
@@ -147,8 +134,17 @@ export class KanbanView extends ItemView {
     }
 
     getDisplayText(): string {
-        return "Kanban";
+        return "kanban";
     }
+
+    // What changed since the last draw, so the changed cards can answer
+    // (docs/ux.md §3).
+    private cardsSeen = new Tracker();
+    private cardsDone = new Tracker();
+    private runningSeen = new Tracker();
+    // Refreshed once per render.
+    private runningByLink: Map<string, RunningSession> = new Map();
+    private todayLinks: Set<string> = new Set();
 
     private get filters() {
         return this.plugin.settings.kanbanFilters;
@@ -158,24 +154,6 @@ export class KanbanView extends ItemView {
         // "issue" is a legacy value from when the board had three flat tabs;
         // it now means scope=issue and says nothing about the Projects axis.
         return this.filters.groupBy === "sprint" ? "sprint" : "status";
-    }
-
-    /**
-     * NEVER name this `scope`. Obsidian's workspace scope delegates every
-     * keystroke to `activeLeaf.view.scope` and calls `handleKey()` on it, so
-     * a `View.scope` holding anything but an obsidian `Scope` throws inside
-     * the global keydown handler — killing EVERY hotkey (Cmd+T, Cmd+P, ...)
-     * while this view is active.
-     */
-    private get boardScope(): BoardScope {
-        // No issues folder — the Issues tab doesn't exist to be selected.
-        if (this.plugin.issuesSourceId() === null) {
-            return "projects";
-        }
-        if (this.filters.scope) {
-            return this.filters.scope;
-        }
-        return this.filters.groupBy === "issue" ? "issue" : "projects";
     }
 
     private async setFilters(
@@ -188,29 +166,11 @@ export class KanbanView extends ItemView {
 
     /** All cards on the board, before filters. */
     private collectCards(): Card[] {
-        return this.boardScope === "issue"
-            ? collectIssueCards(this.plugin)
-            : collectTaskCards(this.plugin);
+        return collectTaskCards(this.plugin);
     }
 
     private applyFilters(cards: Card[]): Card[] {
         const { project, sprint, hideDone } = this.filters;
-        // Issues have no sprint, and their project comes from frontmatter
-        // rather than from the folder they live in — one issue can feed
-        // several projects, or none.
-        if (this.boardScope === "issue") {
-            const issueProject = this.filters.issueProject ?? null;
-            return cards.filter((c) => {
-                if (hideDone && isDoneStatus(cardStatus(c.event))) {
-                    return false;
-                }
-                const projects = cardProjects(c.event);
-                if (issueProject === NO_PROJECT) {
-                    return projects.length === 0;
-                }
-                return !issueProject || projects.includes(issueProject);
-            });
-        }
         // The sprint dropdown only applies on the status axis — on the sprint
         // axis the columns already partition by sprint.
         const applySprint = this.groupBy === "status";
@@ -257,25 +217,14 @@ export class KanbanView extends ItemView {
         return statuses.map((status) => ({
             key: status,
             label: status,
-            dotColor: getStatusColor(status) ?? null,
+            // Status isn't painted (docs/ux.md §1).
+            dotColor: null,
             cards: cards.filter((c) => cardStatus(c.event) === status),
             onDrop: (id: string) => this.moveCard(id, status),
             onAdd: () =>
                 this.launchCreate({
                     status,
                 }),
-        }));
-    }
-
-    /**
-     * Columns for the Issue axis: the same full stage set as the status
-     * axis. Only the + button is dropped — issues are born from their
-     * template note, not from the create-event modal.
-     */
-    private buildIssueColumns(cards: Card[]): Column[] {
-        return this.buildStatusColumns(cards).map((column) => ({
-            ...column,
-            onAdd: null,
         }));
     }
 
@@ -301,7 +250,7 @@ export class KanbanView extends ItemView {
         const columns: Column[] = [
             {
                 key: "none",
-                label: "No sprint",
+                label: "週は未定",
                 dotColor: null,
                 cards: buckets.get("none") ?? [],
                 onDrop: (id: string) => this.setSprint(id, null),
@@ -309,16 +258,21 @@ export class KanbanView extends ItemView {
             },
             {
                 key: "carryover",
-                label: "Carry-over",
-                dotColor: "var(--text-error)",
+                label: "持ち越し",
+                dotColor: "var(--ofc-late)",
                 cards: buckets.get("carryover") ?? [],
                 onDrop: null,
                 showWeekBadge: true,
             },
             ...windowWeeks.map((week, i) => ({
                 key: week,
-                label: i === 0 ? `${week} · this week` : week,
-                dotColor: i === 0 ? "var(--interactive-accent)" : null,
+                label:
+                    i === 0
+                        ? `今週（${week}）`
+                        : i === 1
+                        ? `来週（${week}）`
+                        : week,
+                dotColor: null,
                 cards: buckets.get(week) ?? [],
                 onDrop: (id: string) => this.setSprint(id, week),
                 highlight: i === 0,
@@ -369,7 +323,17 @@ export class KanbanView extends ItemView {
                 (total, c) => total + (c.event.estimate ?? 0),
                 0
             );
-            column.hoursLabel = minutes > 0 ? formatHours(minutes) : null;
+            // Spent against planned, like a card's own small print.
+            const spent = column.cards.reduce((total, c) => {
+                const link = linktextForEvent(this.plugin, c.id);
+                return total + (link ? this.actuals.get(link) ?? 0 : 0);
+            }, 0);
+            column.hoursLabel =
+                minutes > 0
+                    ? `${formatHours(spent)} / ${formatHours(minutes)}`
+                    : spent > 0
+                    ? formatHours(spent)
+                    : null;
         }
         return columns;
     }
@@ -382,68 +346,12 @@ export class KanbanView extends ItemView {
         toolbar.empty();
         const { project, sprint, hideDone } = this.filters;
 
-        // Top-level tabs: the issues folder vs project tasks. Only offered
-        // when an issues folder is configured — otherwise the board is
-        // projects-only and the tab row would be a single button.
-        if (this.plugin.issuesSourceId() !== null) {
-            const scopeToggle = toolbar.createDiv({
-                cls: "ofc-kanban-groupby",
-            });
-            const scopes: [BoardScope, string][] = [
-                ["issue", "Issues"],
-                ["projects", "Projects"],
-            ];
-            for (const [scope, label] of scopes) {
-                const button = scopeToggle.createEl("button", { text: label });
-                if (this.boardScope === scope) {
-                    button.addClass("ofc-kanban-groupby-active");
-                }
-                this.registerDomEvent(button, "click", () => {
-                    if (this.boardScope !== scope) {
-                        // Writing groupBy too normalizes the legacy "issue"
-                        // axis value out of saved filters.
-                        this.setFilters({ scope, groupBy: this.groupBy });
-                    }
-                });
-            }
-        }
-
-        // Issues all live in one folder, so the source-based project filter
-        // below can't tell them apart; they filter by their `project:`
-        // frontmatter instead. Sprint stays meaningless here.
-        if (this.boardScope === "issue") {
-            const names = [
-                ...new Set(allCards.flatMap((c) => cardProjects(c.event))),
-            ].sort();
-            const select = toolbar.createEl("select", { cls: "dropdown" });
-            select.createEl("option", { value: "", text: "All projects" });
-            select.createEl("option", {
-                value: NO_PROJECT,
-                text: "No project",
-            });
-            for (const name of names) {
-                select.createEl("option", { value: name, text: name });
-            }
-            // A remembered project that no issue names any more falls back to
-            // "All projects" visually; picking anything else overwrites it.
-            const current = this.filters.issueProject ?? "";
-            select.value =
-                current === NO_PROJECT || names.includes(current)
-                    ? current
-                    : "";
-            this.registerDomEvent(select, "change", () => {
-                this.setFilters({ issueProject: select.value || null });
-            });
-            this.appendHideDone(toolbar);
-            return;
-        }
-
-        // Axis toggle within Projects: status columns (workflow) vs sprint
+        // Axis toggle: status columns (workflow) vs sprint
         // columns (planning).
         const toggle = toolbar.createDiv({ cls: "ofc-kanban-groupby" });
         const axes: [GroupBy, string][] = [
-            ["status", "Status"],
-            ["sprint", "Sprint"],
+            ["status", "状態"],
+            ["sprint", "週"],
         ];
         for (const [axis, label] of axes) {
             const button = toggle.createEl("button", { text: label });
@@ -462,7 +370,7 @@ export class KanbanView extends ItemView {
         const projectSelect = toolbar.createEl("select", { cls: "dropdown" });
         projectSelect.createEl("option", {
             value: "",
-            text: "All projects",
+            text: "すべてのプロジェクト",
         });
         for (const id of projectIds) {
             projectSelect.createEl("option", {
@@ -480,7 +388,10 @@ export class KanbanView extends ItemView {
 
         // Sprint filter: only meaningful on the status axis — the sprint axis
         // already lays sprints out as columns.
-        if (this.groupBy === "status") {
+        // Always there, so nothing after it shifts when the axis changes
+        // (docs/ux.md §2); on the week axis it has nothing to say — the
+        // columns already are the weeks — and is switched off.
+        {
             const weeks = [
                 ...new Set(
                     allCards
@@ -493,15 +404,15 @@ export class KanbanView extends ItemView {
             });
             sprintSelect.createEl("option", {
                 value: "all",
-                text: "All sprints",
+                text: "すべての週",
             });
             sprintSelect.createEl("option", {
                 value: "current",
-                text: `Current sprint (${weekOf(0)})`,
+                text: `今週（${weekOf(0)}）`,
             });
             sprintSelect.createEl("option", {
                 value: "none",
-                text: "No sprint",
+                text: "週は未定",
             });
             for (const week of weeks) {
                 sprintSelect.createEl("option", { value: week, text: week });
@@ -516,6 +427,7 @@ export class KanbanView extends ItemView {
             this.registerDomEvent(sprintSelect, "change", () => {
                 this.setFilters({ sprint: sprintSelect.value });
             });
+            sprintSelect.disabled = this.groupBy !== "status";
         }
 
         this.appendHideDone(toolbar);
@@ -529,7 +441,7 @@ export class KanbanView extends ItemView {
             type: "checkbox",
         });
         hideDoneBox.checked = this.filters.hideDone;
-        hideDoneLabel.appendText(" Hide Done");
+        hideDoneLabel.appendText(" Done を隠す");
         this.registerDomEvent(hideDoneBox, "change", () => {
             this.setFilters({ hideDone: hideDoneBox.checked });
         });
@@ -543,6 +455,14 @@ export class KanbanView extends ItemView {
         if (!board) {
             return;
         }
+        // A redraw must not throw the reader back to the top of a column.
+        const scrolled = new Map<string, number>();
+        board.findAll(".ofc-kanban-column").forEach((el) => {
+            const body = el.querySelector(".ofc-kanban-cards");
+            if (el.dataset.key && body) {
+                scrolled.set(el.dataset.key, body.scrollTop);
+            }
+        });
         board.empty();
 
         this.actuals = actualMinutesByLinktext(this.plugin);
@@ -550,10 +470,48 @@ export class KanbanView extends ItemView {
         this.renderToolbar(allCards);
         const cards = this.applyFilters(allCards);
 
+        // The same states the tray shows (docs/ux.md §1): what is running,
+        // and what is on today's list.
+        const running = findRunningSessions(this.plugin);
+        this.runningByLink = new Map();
+        for (const r of running) {
+            const link = firstLinktext(r.event.title);
+            if (link) {
+                this.runningByLink.set(link, r);
+            }
+        }
+        const today = DateTime.now().toISODate();
+        this.todayLinks = new Set(
+            collectTodayRows(this.plugin)
+                .filter((t) => t.date === today && !t.done)
+                .map((t) => soleLinktext(t.title))
+                .filter((l): l is string => !!l)
+        );
+        const runDiff = this.runningSeen.update(this.runningByLink.keys());
+        for (const link of [...runDiff.added, ...runDiff.removed]) {
+            markFx(`run:${link}`, "touch");
+        }
+        const linkOf = (c: Card) => linktextForEvent(this.plugin, c.id) ?? c.id;
+        for (const key of this.cardsSeen.update(allCards.map(linkOf)).added) {
+            markFx(`card:${key}`, "arrive");
+        }
+        for (const key of this.cardsDone.update(
+            allCards.filter((c) => cardDone(c.event)).map(linkOf)
+        ).added) {
+            markFx(`card:${key}`, "done");
+        }
+
+        // This week's bar counts what the board is showing: with a project
+        // picked, that project's week.
+        const { project } = this.filters;
+        this.renderWeekProgress(
+            project && this.plugin.cache.calendars.has(project)
+                ? allCards.filter((c) => c.calendarId === project)
+                : allCards
+        );
+
         const columns =
-            this.boardScope === "issue"
-                ? this.buildIssueColumns(cards)
-                : this.groupBy === "sprint"
+            this.groupBy === "sprint"
                 ? this.buildSprintColumns(cards)
                 : this.buildStatusColumns(cards);
 
@@ -563,9 +521,14 @@ export class KanbanView extends ItemView {
             "--ofc-kanban-cols",
             `${columns.length}`
         );
+        this.progressEl?.style.setProperty(
+            "--ofc-kanban-cols",
+            `${columns.length}`
+        );
 
         for (const column of columns) {
             const columnEl = board.createDiv({ cls: "ofc-kanban-column" });
+            columnEl.dataset.key = column.key;
             if (column.highlight) {
                 columnEl.addClass("ofc-kanban-column-current");
             }
@@ -576,8 +539,11 @@ export class KanbanView extends ItemView {
             const headerEl = columnEl.createDiv({
                 cls: "ofc-kanban-column-header",
             });
-            const dot = headerEl.createSpan({ cls: "ofc-kanban-dot" });
-            dot.style.backgroundColor = column.dotColor ?? "var(--text-muted)";
+            // Only "late" has a colour of its own.
+            if (column.dotColor) {
+                const dot = headerEl.createSpan({ cls: "ofc-kanban-dot" });
+                dot.style.backgroundColor = column.dotColor;
+            }
             headerEl.createSpan({
                 cls: "ofc-kanban-column-title",
                 text: column.label,
@@ -596,7 +562,7 @@ export class KanbanView extends ItemView {
             if (onAdd) {
                 const addButton = headerEl.createEl("button", {
                     cls: "clickable-icon ofc-kanban-add",
-                    attr: { "aria-label": `New task in ${column.label}` },
+                    attr: { "aria-label": `${column.label} にタスクを作る` },
                 });
                 setIcon(addButton, "plus");
                 this.registerDomEvent(addButton, "click", onAdd);
@@ -605,14 +571,18 @@ export class KanbanView extends ItemView {
             const bodyEl = columnEl.createDiv({ cls: "ofc-kanban-cards" });
             const onDrop = column.onDrop;
             if (onDrop) {
-                this.registerDomEvent(bodyEl, "dragover", (ev) => {
+                // The whole column takes the drop — heading and empty space
+                // included — and lights once, not once per card crossed.
+                this.registerDomEvent(columnEl, "dragover", (ev) => {
                     ev.preventDefault();
                     columnEl.addClass("ofc-kanban-dragover");
                 });
-                this.registerDomEvent(bodyEl, "dragleave", () => {
-                    columnEl.removeClass("ofc-kanban-dragover");
+                this.registerDomEvent(columnEl, "dragleave", (ev) => {
+                    if (!columnEl.contains(ev.relatedTarget as Node | null)) {
+                        columnEl.removeClass("ofc-kanban-dragover");
+                    }
                 });
-                this.registerDomEvent(bodyEl, "drop", async (ev) => {
+                this.registerDomEvent(columnEl, "drop", async (ev) => {
                     ev.preventDefault();
                     columnEl.removeClass("ofc-kanban-dragover");
                     const id = ev.dataTransfer?.getData("text/plain");
@@ -620,24 +590,45 @@ export class KanbanView extends ItemView {
                         await onDrop(id);
                     }
                 });
+                this.dropTargets.set(columnEl, onDrop);
             }
 
+            // Done from before this week is history: folded under one
+            // line, so the column shows what was finished lately.
+            const week = weekOf(0);
+            const isOld = (c: Card) =>
+                this.groupBy === "status" &&
+                cardDone(c.event) &&
+                !!c.event.sprint &&
+                c.event.sprint < week;
+            const old = column.cards.filter(isOld);
             for (const card of column.cards) {
-                this.renderCard(bodyEl, card, column);
+                if (!isOld(card) || this.showOldDone) {
+                    this.renderCard(bodyEl, card, column);
+                }
             }
+            if (old.length > 0) {
+                const fold = bodyEl.createEl("button", {
+                    cls: "ofc-kanban-fold",
+                    text: this.showOldDone
+                        ? "前の週の Done を畳む"
+                        : `前の週の Done　${old.length}件`,
+                });
+                this.registerDomEvent(fold, "click", () => {
+                    this.showOldDone = !this.showOldDone;
+                    this.render();
+                });
+            }
+            bodyEl.scrollTop = scrolled.get(column.key) ?? 0;
         }
 
         if (cards.length === 0) {
             board.createDiv({
                 cls: "ofc-kanban-empty",
                 text:
-                    this.boardScope === "issue"
-                        ? allCards.length === 0
-                            ? "No issues yet. Notes in the issues folder with a status will show up here."
-                            : "No issues match the current filters."
-                        : allCards.length === 0
-                        ? "No tasks yet. Give an event a status (or a checkbox) and it will show up here."
-                        : "No tasks match the current filters.",
+                    allCards.length === 0
+                        ? "タスクはまだない。列の「＋」で作る。"
+                        : "絞り込みに合うタスクはない。",
             });
         }
     }
@@ -646,7 +637,25 @@ export class KanbanView extends ItemView {
         const { id, event } = card;
         const done = cardDone(event);
         const linktext = linktextForEvent(this.plugin, id);
-        const issue = this.boardScope === "issue";
+        const session = linktext ? this.runningByLink.get(linktext) : undefined;
+        const onToday = !!linktext && this.todayLinks.has(linktext);
+        // The same row as the tray's week card, with the same one button:
+        // stop while its clock runs, otherwise "onto today" (docs/ux.md §2).
+        const buttons: RowButton[] = [];
+        if (session) {
+            buttons.push({
+                icon: "square",
+                label: "止める",
+                onClick: () => stopSession(this.plugin, session),
+            });
+        } else if (linktext && !done && !onToday) {
+            buttons.push({
+                icon: "calendar-plus",
+                label: "今日に入れる",
+                quiet: true,
+                onClick: () => addTaskToToday(this.plugin, linktext),
+            });
+        }
         // The same row as the tray's. What differs is only the small print:
         // a column can't say everything the tray's headings do, so the card
         // names its project, and whichever of status / sprint the columns
@@ -654,26 +663,33 @@ export class KanbanView extends ItemView {
         const { el: cardEl } = renderRow(parent, {
             cls: ["ofc-kanban-card"],
             title: event.title,
-            // An issue can sit on several projects; its bar takes the first.
-            color: issue
-                ? projectColor(this.plugin, cardProjects(event)[0] ?? "")
-                : card.sourceColor,
+            color: card.sourceColor,
             done,
+            running: !!session,
+            buttons,
             meta: (metaEl) => {
-                const projects = issue
-                    ? cardProjects(event)
-                    : [projectLabel(card.calendarId)];
-                if (projects.length > 0) {
-                    metaPart(metaEl, projects.join("、"));
+                if (onToday) {
+                    metaPart(metaEl, "今日", "ofc-row-today");
                 }
-                if (!issue && this.groupBy === "sprint") {
+                if (
+                    session &&
+                    session.event.type === "single" &&
+                    !session.event.allDay
+                ) {
+                    elapsedPart(
+                        metaEl,
+                        `${session.event.date}T${session.event.startTime}`
+                    );
+                }
+                metaPart(metaEl, projectLabel(card.calendarId));
+                if (this.groupBy === "sprint") {
                     metaPart(metaEl, cardStatus(event));
                     // In carry-over: which week the card slipped from.
                     if (column.showWeekBadge && event.sprint) {
                         metaPart(metaEl, event.sprint);
                     }
                 } else if (event.sprint) {
-                    metaPart(metaEl, event.sprint).toggleClass(
+                    metaPart(metaEl, weekLabel(event.sprint)).toggleClass(
                         "ofc-row-current",
                         event.sprint === weekOf(0)
                     );
@@ -691,21 +707,35 @@ export class KanbanView extends ItemView {
                 dueMeta(metaEl, done ? null : dueBadge(event.due));
             },
         });
-        cardEl.setAttr("draggable", "true");
+        const fxKey = linktext ?? id;
+        applyFx(cardEl, `card:${fxKey}`);
+        applyFx(cardEl, `run:${fxKey}`);
 
-        this.registerDomEvent(cardEl, "dragstart", (ev) => {
-            ev.dataTransfer?.setData("text/plain", id);
-            ev.dataTransfer!.effectAllowed = "move";
-            cardEl.addClass("ofc-kanban-dragging");
-        });
-        this.registerDomEvent(cardEl, "dragend", () => {
-            cardEl.removeClass("ofc-kanban-dragging");
-            this.boardEl
-                ?.findAll(".ofc-kanban-dragover")
-                .forEach((el) => el.removeClass("ofc-kanban-dragover"));
-        });
+        if (Platform.isMobile) {
+            // The browser's own drag doesn't exist for fingers.
+            this.makeTouchDraggable(cardEl, id);
+        } else {
+            cardEl.setAttr("draggable", "true");
+            this.registerDomEvent(cardEl, "dragstart", (ev) => {
+                ev.dataTransfer?.setData("text/plain", id);
+                ev.dataTransfer!.effectAllowed = "move";
+                cardEl.addClass("ofc-kanban-dragging");
+                // While a card is held, columns that can't take it step back.
+                this.boardEl?.addClass("ofc-kanban-holding");
+            });
+            this.registerDomEvent(cardEl, "dragend", () => {
+                cardEl.removeClass("ofc-kanban-dragging");
+                this.boardEl?.removeClass("ofc-kanban-holding");
+                this.boardEl
+                    ?.findAll(".ofc-kanban-dragover")
+                    .forEach((el) => el.removeClass("ofc-kanban-dragover"));
+            });
+        }
 
         this.registerDomEvent(cardEl, "click", async (ev) => {
+            if (Date.now() < this.suppressClickUntil) {
+                return;
+            }
             try {
                 if (
                     ev.getModifierState("Control") ||
@@ -742,20 +772,19 @@ export class KanbanView extends ItemView {
 
         this.registerDomEvent(cardEl, "contextmenu", (ev) => {
             const menu = new Menu();
-            // Issues stay out of sprint planning, so no sprint items there.
-            if (this.boardScope !== "issue") {
+            {
                 const week = weekOf(0);
                 if (event.sprint !== week) {
                     menu.addItem((item) =>
                         item
-                            .setTitle(`Assign to current sprint (${week})`)
+                            .setTitle("今週に入れる")
                             .onClick(() => this.setSprint(id, week))
                     );
                 }
                 if (event.sprint) {
                     menu.addItem((item) =>
                         item
-                            .setTitle("Remove from sprint")
+                            .setTitle("週から外す")
                             .onClick(() => this.setSprint(id, null))
                     );
                 }
@@ -764,32 +793,179 @@ export class KanbanView extends ItemView {
             // Seen on the board, decided for today: onto today's list
             // without going back to the tray. (Issues aren't things to do
             // today; tasks are.)
-            if (this.boardScope !== "issue" && linktext && !done) {
+            if (linktext && !done && !onToday) {
                 menu.addItem((item) =>
                     item
                         .setTitle("今日に入れる")
                         .setIcon("calendar-plus")
-                        .onClick(async () => {
-                            await addTaskToToday(this.plugin, linktext);
-                            new Notice("今日のリストに入れました。");
-                        })
+                        .onClick(() => addTaskToToday(this.plugin, linktext))
                 );
                 menu.addSeparator();
             }
             menu.addItem((item) =>
-                item.setTitle("Go to note").onClick(() => {
-                    openFileForEvent(this.plugin.cache, this.app, id);
-                })
+                item
+                    .setTitle("ノートを開く")
+                    .setIcon("file-text")
+                    .onClick(() => {
+                        openFileForEvent(this.plugin.cache, this.app, id);
+                    })
             );
             menu.addItem((item) =>
-                item.setTitle("Delete").onClick(async () => {
-                    await this.plugin.cache.deleteEvent(id);
-                    new Notice(`Deleted event "${event.title}".`);
-                })
+                item
+                    .setTitle("消す")
+                    .setIcon("trash-2")
+                    .onClick(() =>
+                        deleteWithUndo(
+                            this.plugin,
+                            id,
+                            `「${event.title}」を消しました。`
+                        )
+                    )
             );
             menu.showAtMouseEvent(ev);
         });
     }
+
+    // Columns that take a drop, for the touch drag to find under a finger.
+    private dropTargets = new WeakMap<
+        HTMLElement,
+        (cardId: string) => Promise<void>
+    >();
+
+    /**
+     * Moving a card with a finger: hold to lift, then a copy follows the
+     * finger and the column under it lights, exactly as with the mouse.
+     */
+    private makeTouchDraggable(cardEl: HTMLElement, id: string) {
+        this.registerDomEvent(cardEl, "pointerdown", (down) => {
+            const board = this.boardEl;
+            if (!board || (down.target as HTMLElement).closest("button")) {
+                return;
+            }
+            let ghost: HTMLElement | null = null;
+            let over: HTMLElement | null = null;
+            const lift = window.setTimeout(() => {
+                const r = cardEl.getBoundingClientRect();
+                ghost = cardEl.cloneNode(true) as HTMLElement;
+                ghost.addClass("ofc-kanban-ghost");
+                ghost.style.width = `${r.width}px`;
+                ghost.style.left = `${r.left}px`;
+                ghost.style.top = `${r.top}px`;
+                document.body.appendChild(ghost);
+                cardEl.addClass("ofc-kanban-dragging");
+                board.addClass("ofc-kanban-holding");
+            }, 350);
+            const columnAt = (x: number, y: number) =>
+                (document
+                    .elementsFromPoint(x, y)
+                    .find(
+                        (el) =>
+                            el instanceof HTMLElement &&
+                            this.dropTargets.has(el)
+                    ) as HTMLElement | undefined) ?? null;
+            const onMove = (ev: PointerEvent) => {
+                if (!ghost) {
+                    // Moved before the hold: that is a scroll, not a drag.
+                    if (
+                        Math.abs(ev.clientX - down.clientX) > 5 ||
+                        Math.abs(ev.clientY - down.clientY) > 5
+                    ) {
+                        end();
+                    }
+                    return;
+                }
+                ghost.style.transform = `translate(${
+                    ev.clientX - down.clientX
+                }px, ${ev.clientY - down.clientY}px)`;
+                const next = columnAt(ev.clientX, ev.clientY);
+                if (next !== over) {
+                    over?.removeClass("ofc-kanban-dragover");
+                    next?.addClass("ofc-kanban-dragover");
+                    over = next;
+                }
+            };
+            const onTouchMove = (ev: TouchEvent) => {
+                if (ghost) {
+                    ev.preventDefault();
+                }
+            };
+            const end = () => {
+                window.clearTimeout(lift);
+                document.removeEventListener("pointermove", onMove);
+                document.removeEventListener("pointerup", onUp);
+                document.removeEventListener("pointercancel", end);
+                cardEl.removeEventListener("touchmove", onTouchMove);
+                ghost?.remove();
+                ghost = null;
+                over?.removeClass("ofc-kanban-dragover");
+                cardEl.removeClass("ofc-kanban-dragging");
+                board.removeClass("ofc-kanban-holding");
+            };
+            const onUp = async () => {
+                const onDrop =
+                    ghost && over ? this.dropTargets.get(over) : undefined;
+                const lifted = !!ghost;
+                end();
+                if (lifted) {
+                    // The lift was a drag; don't let it open the card too.
+                    this.suppressClickUntil = Date.now() + 400;
+                }
+                if (onDrop) {
+                    await onDrop(id);
+                }
+            };
+            document.addEventListener("pointermove", onMove);
+            document.addEventListener("pointerup", onUp);
+            document.addEventListener("pointercancel", end);
+            cardEl.addEventListener("touchmove", onTouchMove, {
+                passive: false,
+            });
+        });
+    }
+    private suppressClickUntil = 0;
+
+    /**
+     * This week's progress, the same thin bar as the tray's "今日": tasks of
+     * this week that are Done, out of all of this week's tasks.
+     */
+    private renderWeekProgress(allCards: Card[]) {
+        this.progressEl?.empty();
+        if (!this.progressEl) {
+            return;
+        }
+        const week = weekOf(0);
+        const mine = allCards.filter((c) => c.event.sprint === week);
+        if (mine.length === 0) {
+            return;
+        }
+        const done = mine.filter((c) => cardDone(c.event)).length;
+        const ratio = done / mine.length;
+        const head = this.progressEl.createDiv({ cls: "ofc-kanban-progress" });
+        head.createSpan({ text: "今週" });
+        const count = head.createSpan({
+            cls: "ofc-tray-count",
+            text: `${done} / ${mine.length}`,
+        });
+        count.toggleClass("ofc-tray-count-full", done === mine.length);
+        const bar = this.progressEl.createDiv({ cls: "ofc-tray-progress" });
+        const fill = bar.createDiv({ cls: "ofc-tray-progress-fill" });
+        // Opening the board is not an event: the first draw just shows the
+        // bar; later ones grow it from where it stood.
+        if (this.ratioShown === null || this.ratioShown === ratio) {
+            fill.style.width = `${ratio * 100}%`;
+        } else {
+            fill.style.width = `${this.ratioShown * 100}%`;
+            window.requestAnimationFrame(() => {
+                fill.style.width = `${ratio * 100}%`;
+            });
+        }
+        this.ratioShown = ratio;
+    }
+    private progressEl: HTMLElement | null = null;
+    // Whether Done cards from past weeks are unfolded. Not saved: the board
+    // opens with them folded.
+    private showOldDone = false;
+    private ratioShown: number | null = null;
 
     /**
      * Open the create modal seeded for a column. New cards default to an
@@ -848,7 +1024,7 @@ export class KanbanView extends ItemView {
     async onOpen() {
         await this.plugin.loadSettings();
         if (!this.plugin.cache) {
-            new Notice("Full Calendar event cache not loaded.");
+            new Notice("カレンダーの読み込みが終わっていません。");
             return;
         }
         if (!this.plugin.cache.initialized) {
@@ -866,7 +1042,7 @@ export class KanbanView extends ItemView {
             this.calendarActionAdded = true;
             // Mirror of the calendar view's header action: swap this tab
             // back to the calendar in place.
-            this.addAction("calendar-glyph", "Switch to Calendar", () => {
+            this.addAction("calendar-glyph", "カレンダーに切り替える", () => {
                 this.leaf.setViewState({
                     type: FULL_CALENDAR_VIEW_TYPE,
                     active: true,
@@ -878,6 +1054,13 @@ export class KanbanView extends ItemView {
         container.empty();
         const wrapper = container.createDiv({ cls: "ofc-kanban" });
         this.toolbarEl = wrapper.createDiv({ cls: "ofc-kanban-toolbar" });
+        this.progressEl = wrapper.createDiv({ cls: "ofc-kanban-progress-row" });
+        // The board opens on this week, like the tray beside the calendar.
+        // Looking further is a choice made while it is open.
+        this.plugin.settings.kanbanFilters = {
+            ...this.filters,
+            sprint: "current",
+        };
         this.boardEl = wrapper.createDiv({ cls: "ofc-kanban-board" });
         this.render();
 

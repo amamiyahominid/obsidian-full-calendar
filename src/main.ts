@@ -1,3 +1,4 @@
+import { elapsedText, tickElapsed } from "./ui/fx";
 import {
     MarkdownView,
     Notice,
@@ -40,19 +41,19 @@ import {
     nextRow,
     plainTitle,
     soleLinktext,
+    startAlongside,
     startOrStop,
+    ChooseSession,
 } from "./core/today";
-import { pickTrayTask } from "./ui/taskPicker";
+import { pickRunningSession, pickTrayTask } from "./ui/taskPicker";
 import { loadDailySettings } from "./core/dailyService";
 import { setNotifier } from "./core/notify";
+import { retitleAfterRename } from "./core/titleSync";
 import { launchCreateModal } from "./ui/event_modal";
 import { workflowStages } from "./ui/colors";
 import { weekOf } from "./ui/sprint";
 import NoteKindCalendar, { isSetAside } from "./calendars/NoteKindCalendar";
 
-// The issues calendar's id (see NoteKindCalendar.identifier).
-const ISSUES_SOURCE_ID = "local::kind/issue";
-const ISSUES_COLOR = "#d06f2a";
 import { collectTaskCards } from "./core/cards";
 import { DateTime } from "luxon";
 import {
@@ -66,11 +67,7 @@ import EventCache, { UpdateViewCallback } from "./core/EventCache";
 import { rollTodosForward } from "./core/todoRollover";
 import ReminderService from "./ui/ReminderService";
 import { ObsidianIO } from "./ObsidianAdapter";
-import {
-    configureStatuses,
-    migrateSourceColor,
-    nextSourceColor,
-} from "./ui/colors";
+import { migrateSourceColor, nextSourceColor } from "./ui/colors";
 import FullNoteCalendar from "./calendars/FullNoteCalendar";
 import DailyNoteCalendar from "./calendars/DailyNoteCalendar";
 import ICSCalendar from "./calendars/ICSCalendar";
@@ -156,9 +153,7 @@ export default class FullCalendarPlugin extends Plugin {
         try {
             await this.cache.populate();
             const moved = await rollTodosForward(this);
-            new Notice(
-                `Full Calendar: rolled ${moved} unfinished TODO(s) forward to today.`
-            );
+            new Notice(`済んでいない TODO を ${moved} 件、今日へ送りました。`);
         } catch (e) {
             console.error("Full Calendar: TODO rollover failed.", e);
         }
@@ -212,22 +207,44 @@ export default class FullCalendarPlugin extends Plugin {
      */
     private statusCallback: UpdateViewCallback | null = null;
 
+    /** A session's title as people read it: a task's line is just its
+     * link, so show the task's own title instead. */
+    private sessionLabel(title: string): string {
+        const link = soleLinktext(title);
+        const task = link
+            ? collectTaskCards(this).find(
+                  (c) => linktextForEvent(this, c.id) === link
+              )
+            : undefined;
+        return plainTitle(task?.event.title || title);
+    }
+
+    /** "Which one?" for the commands that act on one running session when
+     * several are under way. */
+    private chooseSession(placeholder: string): ChooseSession {
+        return (sessions) =>
+            pickRunningSession(
+                this,
+                sessions,
+                (s) =>
+                    `${this.sessionLabel(s.event.title)}  （${
+                        s.event.type === "single" && !s.event.allDay
+                            ? s.event.startTime
+                            : ""
+                    }〜）`,
+                placeholder
+            );
+    }
+
     private setupStatusBar() {
         if (Platform.isMobile) {
             return;
         }
         const el = this.addStatusBarItem();
         el.addClass("ofc-status", "mod-clickable");
-        el.onclick = () => startOrStop(this);
-        // A task's line is just its link; show the task's title instead.
+        el.onclick = () => startOrStop(this, this.chooseSession("止める作業"));
         const label = (title: string) => {
-            const link = soleLinktext(title);
-            const task = link
-                ? collectTaskCards(this).find(
-                      (c) => linktextForEvent(this, c.id) === link
-                  )
-                : undefined;
-            const text = plainTitle(task?.event.title || title);
+            const text = this.sessionLabel(title);
             return text.length > 32 ? text.slice(0, 31) + "…" : text;
         };
         const paint = () => {
@@ -243,20 +260,26 @@ export default class FullCalendarPlugin extends Plugin {
                     const start = DateTime.fromISO(
                         `${session.event.date}T${session.event.startTime}`
                     );
-                    const minutes = Math.max(
-                        0,
-                        Math.floor(
-                            DateTime.now().diff(start, "minutes").minutes
-                        )
+                    // The same "0:42" a row shows.
+                    const elapsed = elapsedText(
+                        start.toISO({ includeOffset: false }) ?? ""
                     );
-                    const elapsed =
-                        minutes >= 60
-                            ? `${Math.floor(minutes / 60)}:${String(
-                                  minutes % 60
-                              ).padStart(2, "0")}`
-                            : `${minutes}分`;
-                    el.setText(`● ${label(session.event.title)}  ${elapsed}`);
-                    el.setAttr("aria-label", "押すと止まる");
+                    // Several under way at once: how many, and the first.
+                    el.setText(
+                        running.length > 1
+                            ? `● ${running.length}本：${label(
+                                  session.event.title
+                              )} ほか`
+                            : `● ${label(session.event.title)}  ${elapsed}`
+                    );
+                    el.setAttr(
+                        "aria-label",
+                        running.length > 1
+                            ? running
+                                  .map((r) => this.sessionLabel(r.event.title))
+                                  .join("\n") + "\n押すと、止めるものを選ぶ"
+                            : "押すと止まる"
+                    );
                     return;
                 }
                 const next = nextRow(collectTodayRows(this), running);
@@ -269,7 +292,13 @@ export default class FullCalendarPlugin extends Plugin {
             }
         };
         this.statusCallback = this.cache.on("update", paint);
-        this.registerInterval(window.setInterval(paint, 30 * 1000));
+        this.registerInterval(
+            window.setInterval(() => {
+                paint();
+                // The running clocks in rows, on every surface.
+                tickElapsed();
+            }, 30 * 1000)
+        );
         paint();
     }
 
@@ -437,6 +466,34 @@ export default class FullCalendarPlugin extends Plugin {
                     // again rather than dropping it until the next restart.
                     this.cache.fileUpdated(file);
                     this.rebuildIfProjectsChanged();
+                    // A task renamed in the file explorer keeps its old
+                    // `title`, and with it its old name on every surface.
+                    // A moment later (so a rename the plugin itself is in
+                    // the middle of has written its own changes), bring
+                    // the title in step with the file name.
+                    window.setTimeout(async () => {
+                        try {
+                            const now = this.io.getFileByPath(file.path);
+                            if (
+                                !now ||
+                                this.io.getMetadata(now)?.frontmatter?.kind !==
+                                    "task"
+                            ) {
+                                return;
+                            }
+                            const page = await this.io.read(now);
+                            const next = retitleAfterRename(
+                                page,
+                                oldPath,
+                                now.path
+                            );
+                            if (next !== page) {
+                                await this.io.rewrite(now, () => next);
+                            }
+                        } catch (e) {
+                            console.error(e);
+                        }
+                    }, 1000);
                 }
             })
         );
@@ -499,20 +556,20 @@ export default class FullCalendarPlugin extends Plugin {
 
         this.addCommand({
             id: "full-calendar-reset",
-            name: "Reset Event Cache",
+            name: "カレンダーを読み直す",
             callback: () => {
                 this.resetCache();
                 this.app.workspace.detachLeavesOfType(FULL_CALENDAR_VIEW_TYPE);
                 this.app.workspace.detachLeavesOfType(
                     FULL_CALENDAR_SIDEBAR_VIEW_TYPE
                 );
-                new Notice("Full Calendar has been reset.");
+                new Notice("カレンダーを読み直しました。");
             },
         });
 
         this.addCommand({
             id: "full-calendar-revalidate",
-            name: "Revalidate remote calendars",
+            name: "外のカレンダーを取り直す",
             callback: () => {
                 this.cache.revalidateRemoteCalendars(true);
             },
@@ -520,7 +577,7 @@ export default class FullCalendarPlugin extends Plugin {
 
         this.addCommand({
             id: "full-calendar-roll-todos",
-            name: "Roll unfinished TODOs forward to today",
+            name: "済んでいない TODO を今日へ送る",
             callback: async () => {
                 await this.rollTodos();
             },
@@ -528,7 +585,7 @@ export default class FullCalendarPlugin extends Plugin {
 
         this.addCommand({
             id: "full-calendar-open-kanban",
-            name: "Open Kanban board",
+            name: "kanban を開く",
             callback: () => {
                 this.activateKanbanView();
             },
@@ -536,7 +593,7 @@ export default class FullCalendarPlugin extends Plugin {
 
         this.addCommand({
             id: "full-calendar-open",
-            name: "Open Calendar",
+            name: "カレンダーを開く",
             callback: () => {
                 this.activateView();
             },
@@ -545,9 +602,12 @@ export default class FullCalendarPlugin extends Plugin {
         // Start and stop without aiming: the list says what comes next.
         this.addCommand({
             id: "full-calendar-start-or-stop",
-            name: "Start the next line / stop the running one",
+            name: "次を始める／進行中を止める",
             callback: async () => {
-                const result = await startOrStop(this);
+                const result = await startOrStop(
+                    this,
+                    this.chooseSession("止める作業")
+                );
                 if (result === "nothing") {
                     new Notice("今日のリストに、始める行がありません。");
                 }
@@ -555,13 +615,25 @@ export default class FullCalendarPlugin extends Plugin {
         });
 
         this.addCommand({
-            id: "full-calendar-done-and-next",
-            name: "Finish the running line and start the next",
+            id: "full-calendar-start-alongside",
+            name: "次を、進行中と並行で始める",
             callback: async () => {
-                const result = await doneAndNext(this);
-                if (result === "finished") {
-                    new Notice("今日のリストは、これで全部です。");
-                } else if (result === "nothing") {
+                if ((await startAlongside(this)) === "nothing") {
+                    new Notice("今日のリストに、始める行がありません。");
+                }
+            },
+        });
+
+        this.addCommand({
+            id: "full-calendar-done-and-next",
+            name: "進行中を済みにして、次を始める",
+            callback: async () => {
+                const result = await doneAndNext(
+                    this,
+                    this.chooseSession("済みにする作業")
+                );
+                // "finished" needs no notice: the list itself answers.
+                if (result === "nothing") {
                     new Notice("今日のリストに、始める行がありません。");
                 }
             },
@@ -569,7 +641,7 @@ export default class FullCalendarPlugin extends Plugin {
 
         this.addCommand({
             id: "full-calendar-pick-and-start",
-            name: "Pick something and start it",
+            name: "選んで始める",
             callback: async () => {
                 const title = await pickTrayTask(
                     this,
@@ -596,7 +668,7 @@ export default class FullCalendarPlugin extends Plugin {
 
         this.addCommand({
             id: "full-calendar-confirm-plan",
-            name: "Confirm past plan blocks into the log",
+            name: "過ぎた予定を Log に写す",
             callback: async () => {
                 const file = targetDailyNote(this);
                 if (!file) {
@@ -609,7 +681,7 @@ export default class FullCalendarPlugin extends Plugin {
 
         this.addCommand({
             id: "full-calendar-fill-plan",
-            name: "Fill the plan from the routine",
+            name: "決まった枠を Plan に入れる",
             callback: async () => {
                 const file = targetDailyNote(this);
                 if (!file) {
@@ -627,7 +699,7 @@ export default class FullCalendarPlugin extends Plugin {
 
         this.addCommand({
             id: "full-calendar-add-task",
-            name: "Add a task for this week",
+            name: "今週のタスクを作る",
             callback: () =>
                 launchCreateModal(this, {
                     type: "single",
@@ -641,37 +713,37 @@ export default class FullCalendarPlugin extends Plugin {
 
         this.addCommand({
             id: "full-calendar-toggle-kanban",
-            name: "Go to the kanban board / back to the calendar",
+            name: "kanban とカレンダーを切り替える",
             callback: () => this.toggleKanban(),
         });
 
         this.addCommand({
             id: "full-calendar-open-tray-pane",
-            name: "Open today and this week as a pane",
+            name: "今日と今週を、別のペインに出す",
             callback: () => this.openPane(FULL_CALENDAR_TRAY_VIEW_TYPE),
         });
 
         this.addCommand({
             id: "full-calendar-open-memo-pane",
-            name: "Open memo as a pane",
+            name: "メモを、別のペインに出す",
             callback: () => this.openPane(FULL_CALENDAR_MEMO_VIEW_TYPE),
         });
 
         this.addCommand({
             id: "full-calendar-return-tray-pane",
-            name: "Return today and this week to the calendar",
+            name: "今日と今週を、カレンダーに戻す",
             callback: () => this.returnPane(FULL_CALENDAR_TRAY_VIEW_TYPE),
         });
 
         this.addCommand({
             id: "full-calendar-return-memo-pane",
-            name: "Return memo to the calendar",
+            name: "メモを、カレンダーに戻す",
             callback: () => this.returnPane(FULL_CALENDAR_MEMO_VIEW_TYPE),
         });
 
         this.addCommand({
             id: "full-calendar-open-sidebar",
-            name: "Open in sidebar",
+            name: "カレンダーをサイドバーで開く",
             callback: () => {
                 if (
                     this.app.workspace.getLeavesOfType(
@@ -717,7 +789,6 @@ export default class FullCalendarPlugin extends Plugin {
         // Status lookups (colors, done detection, kanban columns) live in a
         // module registry so pure helpers can read them without a plugin
         // handle; keep it in sync with settings.
-        configureStatuses(this.settings.statuses, this.settings.uncheckStatus);
         if (this.retireFolderSettings()) {
             await this.saveData(this.settings);
         }
@@ -748,6 +819,11 @@ export default class FullCalendarPlugin extends Plugin {
             "issuesFolder",
             "dismissedAutoFolders",
             "trayOrder",
+            // Fixed by the format now (docs/format.md): the five stages,
+            // and hands found by `kind: hand` rather than in a term note.
+            "statuses",
+            "uncheckStatus",
+            "termFolder",
         ]) {
             if (key in old) {
                 delete old[key];
@@ -758,7 +834,7 @@ export default class FullCalendarPlugin extends Plugin {
     }
 
     async saveSettings() {
-        new Notice("Resetting the event cache with new settings...");
+        new Notice("新しい設定で、カレンダーを読み直しています。");
         await this.saveData(this.settings);
         this.resetCache();
         await this.cache.populate();
@@ -816,18 +892,9 @@ export default class FullCalendarPlugin extends Plugin {
     }
 
     /**
-     * The calendar source id the issues folder registers under, or null when
-     * the feature is off. Card collectors use this to keep issues off the
-     * task board/tray and on the kanban's Issue axis.
-     */
-    issuesSourceId(): string | null {
-        return ISSUES_SOURCE_ID;
-    }
-
-    /**
      * The calendars that come from the vault itself rather than from
      * settings: one per project note (`kind: project`) for that project's
-     * tasks, in the project's own colour, and one for the issues. Projects
+     * tasks, in the project's own colour. Projects
      * are found wherever they are; archived and template notes are skipped.
      */
     private derivedSources(): CalendarInfo[] {
@@ -855,10 +922,7 @@ export default class FullCalendarPlugin extends Plugin {
                 color,
             });
         }
-        return [
-            ...projects,
-            { type: "notes", kind: "issue", color: ISSUES_COLOR },
-        ];
+        return projects;
     }
 
     /**

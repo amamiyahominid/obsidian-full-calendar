@@ -1,8 +1,8 @@
 import { FuzzyMatch, FuzzySuggestModal, Notice } from "obsidian";
 import type FullCalendarPlugin from "../main";
 import { trayCards } from "./tray";
-import { linktextForEvent } from "../core/worklog";
-import { termHandsFor } from "../core/termHands";
+import { linktextForEvent, RunningSession } from "../core/worklog";
+import { handNotes } from "../core/hands";
 
 /*
  * Task picker: a fuzzy-searchable modal over the current term's hands and
@@ -12,11 +12,11 @@ import { termHandsFor } from "../core/termHands";
  */
 
 // `title` is what the work-log line gets: a task's wikilink, or a hand as
-// the term table names it (see termHands.ts). `group` indexes GROUPS.
+// a link to its note (see core/hands.ts). `group` indexes GROUPS.
 type PickableItem = { label: string; title: string; group: number };
 
 // Hands first, then tasks. Each group gets a heading above its first row.
-const GROUPS = ["今期の手", "今週のタスク"];
+const GROUPS = ["手", "今週のタスク"];
 
 class TrayTaskModal extends FuzzySuggestModal<PickableItem> {
     private items: PickableItem[];
@@ -33,7 +33,7 @@ class TrayTaskModal extends FuzzySuggestModal<PickableItem> {
         super(plugin.app);
         this.items = items;
         this.resolve = resolve;
-        this.setPlaceholder("Log a session for…");
+        this.setPlaceholder("何の時間か…");
     }
 
     getItems(): PickableItem[] {
@@ -96,17 +96,19 @@ class TrayTaskModal extends FuzzySuggestModal<PickableItem> {
 }
 
 /**
- * Let the user pick one of the term's hands (for the term covering `date`,
- * YYYY-MM-DD) or this sprint's tasks. Resolves with the work-log title to
+ * Let the user pick a hand (any note of `kind: hand`) or one of this
+ * sprint's tasks, as of `date`. Resolves with the work-log title to
  * write, or null if the modal is dismissed without a choice.
  */
 export async function pickTrayTask(
     plugin: FullCalendarPlugin,
     date: string
 ): Promise<string | null> {
-    const hands: PickableItem[] = (
-        await termHandsFor(plugin.io, plugin.settings.termFolder || "", date)
-    ).map((hand) => ({ label: hand.name, title: hand.title, group: 0 }));
+    const hands: PickableItem[] = handNotes(plugin.io).map((hand) => ({
+        label: hand.name,
+        title: hand.title,
+        group: 0,
+    }));
     const tasks: PickableItem[] = [];
     for (const card of trayCards(plugin)) {
         const linktext = linktextForEvent(plugin, card.id);
@@ -120,10 +122,66 @@ export async function pickTrayTask(
     }
     const items = [...hands, ...tasks];
     if (items.length === 0) {
-        new Notice("No term hands or sprint tasks to log a session for.");
+        new Notice("選べる手もタスクもありません。");
         return null;
     }
     return new Promise((resolve) => {
         new TrayTaskModal(plugin, items, resolve).open();
     });
+}
+
+/** Which of the running sessions? Resolves null when dismissed. */
+class RunningSessionModal extends FuzzySuggestModal<RunningSession> {
+    private chosen = false;
+
+    constructor(
+        plugin: FullCalendarPlugin,
+        private sessions: RunningSession[],
+        private label: (session: RunningSession) => string,
+        private resolve: (session: RunningSession | null) => void,
+        placeholder: string
+    ) {
+        super(plugin.app);
+        this.setPlaceholder(placeholder);
+    }
+
+    getItems(): RunningSession[] {
+        return this.sessions;
+    }
+
+    getItemText(session: RunningSession): string {
+        return this.label(session);
+    }
+
+    onChooseItem(session: RunningSession): void {
+        this.chosen = true;
+        this.resolve(session);
+    }
+
+    onClose(): void {
+        // onChooseItem fires after onClose; give it a tick before deciding
+        // nothing was picked.
+        window.setTimeout(() => {
+            if (!this.chosen) {
+                this.resolve(null);
+            }
+        }, 0);
+    }
+}
+
+export function pickRunningSession(
+    plugin: FullCalendarPlugin,
+    sessions: RunningSession[],
+    label: (session: RunningSession) => string,
+    placeholder: string
+): Promise<RunningSession | null> {
+    return new Promise((resolve) =>
+        new RunningSessionModal(
+            plugin,
+            sessions,
+            label,
+            resolve,
+            placeholder
+        ).open()
+    );
 }

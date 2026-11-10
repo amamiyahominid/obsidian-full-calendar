@@ -1,79 +1,36 @@
 /*
- * Color assignment for the calendar.
+ * The workflow stages, and the colours calendar sources are given.
  *
- * Two independent channels:
- *   - Source color → event BORDER (set at the FullCalendar source level).
- *   - Task status  → event FILL (per-event override of the source color).
- *
- * Non-task events (no status) keep the source color for both border and fill,
- * so their appearance is unchanged.
+ * The stages are fixed (docs/format.md): five, in this order, the last one
+ * meaning done. Nothing about them is configured, and none is painted with
+ * a colour of its own (docs/ux.md §1).
  */
 
-// `trayGroup`: this status's tray group starts collapsed (tucked away). The
-// final (done) stage is always collapsed by default regardless of the flag.
-export type StatusDef = { name: string; color: string; trayGroup?: boolean };
+const STAGES = ["Backlog", "Ready", "In Progress", "Review", "Done"];
 
-// Default workflow stages, in kanban column order. Dusty pastels kept at a
-// uniform tone (high lightness, muted saturation) so the set reads as one
-// cohesive family, ordered as a temperature arc: neutral → cool → warm →
-// resolved. Free-form statuses not in the configured set fall back to the
-// source color.
-export const DEFAULT_STATUSES: StatusDef[] = [
-    { name: "Backlog", color: "#c9cfd8" }, // dove gray — dormant
-    { name: "Ready", color: "#a6c4e2" }, // powder blue — queued
-    { name: "In Progress", color: "#e6d29a" }, // wheat — active
-    { name: "Review", color: "#e6b394", trayGroup: true }, // apricot — attention
-    { name: "Done", color: "#aad6b5" }, // sage — complete
-];
-
-export const DEFAULT_UNCHECK_STATUS = "Review";
-
-// Session-scoped status registry, configured from settings at plugin load
-// and whenever settings change. Module state (rather than plumbing the
-// plugin instance through) because pure helpers like interop.ts and
-// tasks/index.ts need these lookups too.
-let statuses: StatusDef[] = DEFAULT_STATUSES;
-let uncheckStatus = DEFAULT_UNCHECK_STATUS;
-
-export function configureStatuses(defs: StatusDef[], uncheck: string): void {
-    const valid = (defs ?? []).filter((d) => d.name.trim() !== "");
-    statuses = valid.length > 0 ? valid : DEFAULT_STATUSES;
-    uncheckStatus = statuses.some((s) => s.name === uncheck)
-        ? uncheck
-        : statuses[0].name;
-}
+// Stages whose tray group starts collapsed, besides the done one.
+const TUCKED_AWAY = new Set(["Review"]);
 
 /** Workflow stage names, in kanban column order. */
-export const workflowStages = (): string[] => statuses.map((s) => s.name);
+export const workflowStages = (): string[] => [...STAGES];
 
 /**
  * Whether this status's tray group starts COLLAPSED. Every status renders
- * as a group; the final (done) stage and stages with the settings toggle on
- * are tucked away by default, the rest start open. The user's expand/
- * collapse clicks override this per status.
+ * as a group; the done stage and Review are tucked away by default, the
+ * rest start open. The user's expand/collapse clicks override this.
  */
 export function trayCollapsedByDefault(status: string | undefined): boolean {
-    if (!status) {
-        return false;
-    }
-    if (isDoneStatus(status)) {
-        return true;
-    }
-    return statuses.some((s) => s.name === status && s.trayGroup === true);
+    return !!status && (isDoneStatus(status) || TUCKED_AWAY.has(status));
 }
 
-/** Fill color for a stage; undefined for stages not in the configured set. */
-export const getStatusColor = (name: string): string | undefined =>
-    statuses.find((s) => s.name === name)?.color;
-
-/** The LAST configured stage counts as done (checked on the calendar). */
-export const doneStatus = (): string => statuses[statuses.length - 1].name;
+/** The last stage counts as done (checked on the calendar). */
+export const doneStatus = (): string => STAGES[STAGES.length - 1];
 
 export const isDoneStatus = (s: string | undefined): boolean =>
     s !== undefined && s === doneStatus();
 
 /** The stage a task returns to when its checkbox is unticked. */
-export const statusAfterUncheck = (): string => uncheckStatus;
+export const statusAfterUncheck = (): string => "Review";
 
 // Source border palette — 10 visually distinct colors assigned sequentially as
 // new calendar sources are added. Deterministic and collision-free until all

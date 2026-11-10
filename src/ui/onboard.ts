@@ -15,9 +15,8 @@ export function renderOnboarding(
     nocal.style.alignItems = "center";
     nocal.style.justifyContent = "center";
     const notice = nocal.createDiv();
-    notice.createEl("h1").textContent = "No calendar available";
-    notice.createEl("p").textContent =
-        "Thanks for downloading Full Calendar! Create a calendar below to begin.";
+    notice.createEl("h1").textContent = "カレンダーがまだない";
+    notice.createEl("p").textContent = "下のボタンでカレンダーを足す。";
 
     const container = notice.createDiv();
     container.style.position = "fixed";

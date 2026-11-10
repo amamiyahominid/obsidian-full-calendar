@@ -129,9 +129,7 @@ export async function addTaskToToday(
 ): Promise<void> {
     const calendarId = todoCalendarId(plugin);
     if (!calendarId) {
-        notify(
-            'No TODO calendar configured. Add a "Daily Note" calendar with TODOs enabled in the Full Calendar settings.'
-        );
+        notify("日の記録に TODO の見出しが見つかりません。");
         return;
     }
     const today = DateTime.now().toISODate();
@@ -139,13 +137,24 @@ export async function addTaskToToday(
         .getAllEvents()
         .filter((s) => s.id === calendarId)
         .flatMap((s) => s.events)
-        .some(
+        .filter(
             ({ event }) =>
                 event.type === "single" &&
                 event.date === today &&
                 soleLinktext(event.title) === linktext
         );
-    if (listed) {
+    if (listed.length > 0) {
+        // Already on the list. If every such line is ticked, adding it
+        // again means "more of this today": reopen the line rather than
+        // write a second one.
+        const open = listed.some(
+            ({ event }) => event.type === "single" && !event.completed
+        );
+        if (!open) {
+            await plugin.cache.processEvent(listed[0].id, (e) =>
+                toggleTask(e, false)
+            );
+        }
         return;
     }
     try {
@@ -202,17 +211,37 @@ export function startRow(
 }
 
 /**
- * One key for both: stop whatever is running; if nothing is, start what's
- * next. Returns what happened, for the caller to tell the user.
+ * Asks which of several running sessions is meant. The core doesn't draw
+ * anything; the host passes this in (a picker, in Obsidian). Null = none.
+ */
+export type ChooseSession = (
+    sessions: RunningSession[]
+) => Promise<RunningSession | null>;
+
+/** The one session meant: the only one running, or the one chosen. */
+async function sessionMeant(
+    running: RunningSession[],
+    choose: ChooseSession
+): Promise<RunningSession | null> {
+    return running.length === 1 ? running[0] : choose(running);
+}
+
+/**
+ * One key for both: with nothing running, start what's next; otherwise
+ * stop — the one running session, or, with several under way, the one
+ * picked. Returns what happened, for the caller to tell the user.
  */
 export async function startOrStop(
-    plugin: FullCalendarPlugin
-): Promise<"stopped" | "started" | "nothing"> {
+    plugin: FullCalendarPlugin,
+    choose: ChooseSession
+): Promise<"stopped" | "started" | "nothing" | "cancelled"> {
     const running = findRunningSessions(plugin);
     if (running.length > 0) {
-        for (const session of running) {
-            await stopSession(plugin, session);
+        const session = await sessionMeant(running, choose);
+        if (!session) {
+            return "cancelled";
         }
+        await stopSession(plugin, session);
         return "stopped";
     }
     const next = nextRow(collectTodayRows(plugin), running);
@@ -224,22 +253,51 @@ export async function startOrStop(
 }
 
 /**
- * Finish and go on: tick the running row, stop its session, start the next
- * line. With nothing running it just starts the next line.
+ * Start the next line alongside whatever is already running — a second
+ * (third…) thing under way at once.
+ */
+export async function startAlongside(
+    plugin: FullCalendarPlugin
+): Promise<"started" | "nothing"> {
+    const next = nextRow(collectTodayRows(plugin), findRunningSessions(plugin));
+    if (!next) {
+        return "nothing";
+    }
+    await startRow(plugin, next);
+    return "started";
+}
+
+/**
+ * Finish and go on: tick the running line and stop its session (with
+ * several running, the one picked). If that leaves nothing running, the
+ * next line starts; if other work is still under way, it just closes this
+ * one. With nothing running to begin with, it starts the next line.
  */
 export async function doneAndNext(
-    plugin: FullCalendarPlugin
-): Promise<"started" | "finished" | "nothing"> {
+    plugin: FullCalendarPlugin,
+    choose: ChooseSession
+): Promise<"started" | "finished" | "closed" | "nothing" | "cancelled"> {
     const running = findRunningSessions(plugin);
     const rows = collectTodayRows(plugin);
-    const current = rows.find((r) => !r.done && sessionOfRow(r, running));
-    for (const session of running) {
+    let current: TodayRow | undefined;
+    if (running.length > 0) {
+        const session = await sessionMeant(running, choose);
+        if (!session) {
+            return "cancelled";
+        }
+        current = rows.find((r) => !r.done && sessionOfRow(r, [session]));
         await stopSession(plugin, session);
+        if (current) {
+            const id = current.id;
+            await plugin.cache.processEvent(id, (e) => toggleTask(e, true));
+        }
+        if (running.length > 1) {
+            return "closed";
+        }
     }
-    if (current) {
-        await plugin.cache.processEvent(current.id, (e) => toggleTask(e, true));
-    }
-    const next = rows.find((r) => !r.done && r.id !== current?.id);
+    const next = rows.find(
+        (r) => !r.done && r.id !== current?.id && !sessionOfRow(r, running)
+    );
     if (!next) {
         return current ? "finished" : "nothing";
     }

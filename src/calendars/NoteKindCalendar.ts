@@ -17,12 +17,12 @@ import { EditableCalendar } from "./EditableCalendar";
  * Folders can be renamed and notes moved without anything going missing.
  *
  * One calendar per project holds that project's tasks, so the project is
- * still what a card's colour and name come from; one more holds the issues.
+ * still what a card's colour and name come from.
  * Reading scans the vault's notes; writing a new task puts it in `tasks/`
  * beside the project's note — a place to put it, not a way to find it.
  */
 
-export type NoteKind = "task" | "issue";
+export type NoteKind = "task";
 
 export type ProjectRef = {
     // The project note's basename: what `project: "[[…]]"` links to.
@@ -86,9 +86,7 @@ export default class NoteKindCalendar extends FullNoteCalendar {
     }
 
     get name(): string {
-        return (
-            this.project?.name ?? (this.kind === "issue" ? "Issues" : "Tasks")
-        );
+        return this.project?.name ?? "Tasks";
     }
 
     /** Any note might be (or have just become, or stopped being) ours. */

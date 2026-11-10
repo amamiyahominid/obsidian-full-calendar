@@ -1,7 +1,6 @@
 import {
     SOURCE_PALETTE,
     EXTERNAL_COLOR,
-    getStatusColor,
     nextSourceColor,
     contrastTextColor,
     migrateSourceColor,
@@ -65,7 +64,7 @@ describe("migrateSourceColor", () => {
 
 describe("contrastTextColor", () => {
     it("uses black text on light fills", () => {
-        expect(contrastTextColor(getStatusColor("In Progress")!)).toBe("black");
+        expect(contrastTextColor("#e6d29a")).toBe("black");
     });
 
     it("uses white text on dark fills", () => {

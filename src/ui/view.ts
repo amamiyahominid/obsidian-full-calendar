@@ -1,7 +1,16 @@
 import "./overrides.css";
 import { ItemView, Menu, Notice, Platform, WorkspaceLeaf } from "obsidian";
 import { DateTime } from "luxon";
-import { Calendar, EventInput, EventSourceInput } from "@fullcalendar/core";
+import {
+    Calendar,
+    EventApi,
+    EventInput,
+    EventSourceInput,
+} from "@fullcalendar/core";
+import { deleteWithUndo } from "./undo";
+import { confirmPlanFor } from "./planActions";
+import { dailyFile, todayISO } from "../core/dailyService";
+import { plainTitle, sessionOfRow, TodayRow } from "../core/today";
 import { renderCalendar } from "./calendar";
 import FullCalendarPlugin from "../main";
 import { FCError, OFCEvent, PLUGIN_SLUG } from "../types";
@@ -149,7 +158,7 @@ export class CalendarView extends ItemView {
     }
 
     getDisplayText() {
-        return this.inSidebar ? "Full Calendar" : "Calendar";
+        return "カレンダー";
     }
 
     /**
@@ -289,10 +298,10 @@ export class CalendarView extends ItemView {
     }
 
     /**
-     * Give a work-log session block its linked task's colors — fill by
-     * workflow status, frame in the project calendar's color — matching the
-     * tray card it was dragged from. Sessions with no resolvable task link
-     * keep the work-log calendar's own color.
+     * Give a block the look of what it stands for (docs/ux.md §1): its
+     * task's project colour, or the one colour of hands when it links to
+     * no task; paler when it is from Plan; a green edge while it runs.
+     * Status isn't painted.
      */
     private decorateSession(
         input: EventInput,
@@ -307,8 +316,8 @@ export class CalendarView extends ItemView {
                 "ofc-event-plan",
             ];
         }
-        // Running session (no endTime yet): render translucent — colors are
-        // kept, opacity returns when it's stopped — and stretch the block to
+        // Running session (no endTime yet): a green edge, and the block
+        // is stretched to
         // "now" so it mirrors elapsed time instead of FullCalendar's fake
         // one-hour default. A view interval keeps growing it (see onOpen).
         if (
@@ -334,7 +343,7 @@ export class CalendarView extends ItemView {
         const look = link ? looks.get(link) : undefined;
         if (!look || !look.sourceColor) {
             // Not a task: a hand (or free text). All of these share one
-            // strong colour — the theme's accent — whatever pale colour
+            // strong colour — the hand teal (--ofc-hand) — whatever colour
             // the work-log calendar itself is set to.
             input.classNames = [
                 ...(Array.isArray(input.classNames) ? input.classNames : []),
@@ -351,6 +360,63 @@ export class CalendarView extends ItemView {
 
     /** Log or Plan: the two calendars whose events are blocks of time for
      * a task or a hand, drawn in that task's (or the hands') colour. */
+    /**
+     * What a block can do where it stands: a running one stops, one of
+     * today's Plan starts. Anything else has no action. The block's button
+     * and its menu both ask here.
+     */
+    private blockAction(e: EventApi): {
+        icon: string;
+        label: string;
+        onClick: () => unknown;
+    } | null {
+        if (!this.isBlockSource(e.source?.id)) {
+            return null;
+        }
+        const event = this.plugin.cache.getEventById(e.id);
+        if (!event || event.type !== "single" || event.allDay) {
+            return null;
+        }
+        if (event.startTime && !event.endTime) {
+            return {
+                icon: "square",
+                label: "止める",
+                onClick: () => stopSession(this.plugin, { id: e.id, event }),
+            };
+        }
+        if (
+            e.classNames.includes("ofc-event-plan") &&
+            event.date === DateTime.now().toISODate()
+        ) {
+            return {
+                icon: "play",
+                label: "始める",
+                onClick: () => startSessionFromBlock(this.plugin, e.id, event),
+            };
+        }
+        return null;
+    }
+
+    /** A read-only event has no actions; its menu says what and when. */
+    private addRemoteInfo(menu: Menu, e: EventApi) {
+        const hm = (d: Date | null) =>
+            d ? DateTime.fromJSDate(d).toFormat("H:mm") : "";
+        menu.addItem((item) => item.setTitle(e.title).setDisabled(true));
+        menu.addItem((item) =>
+            item
+                .setTitle(e.allDay ? "終日" : `${hm(e.start)} - ${hm(e.end)}`)
+                .setDisabled(true)
+        );
+        const source = e.source?.id
+            ? this.plugin.cache.getCalendarById(e.source.id)
+            : null;
+        if (source?.name) {
+            menu.addItem((item) =>
+                item.setTitle(source.name).setDisabled(true)
+            );
+        }
+    }
+
     private isBlockSource(id: string | undefined): boolean {
         return (
             !!id &&
@@ -392,7 +458,7 @@ export class CalendarView extends ItemView {
     async onOpen() {
         await this.plugin.loadSettings();
         if (!this.plugin.cache) {
-            new Notice("Full Calendar event cache not loaded.");
+            new Notice("カレンダーの読み込みが終わっていません。");
             return;
         }
         if (!this.plugin.cache.initialized) {
@@ -414,7 +480,17 @@ export class CalendarView extends ItemView {
             // Main-tab calendars swap to the kanban board in place, so the
             // two feel like one tool with two axes. The sidebar calendar is
             // too narrow for a board, so it opens the kanban in a main tab.
-            this.addAction("columns", "Switch to Kanban board", () => {
+            this.addAction(
+                "check-check",
+                "過ぎた予定を Log に写す",
+                async () => {
+                    const file = dailyFile(this.plugin.io, todayISO());
+                    if (file) {
+                        await confirmPlanFor(this.plugin, file);
+                    }
+                }
+            );
+            this.addAction("columns", "kanban に切り替える", () => {
                 if (this.inSidebar) {
                     this.plugin.activateKanbanView();
                 } else {
@@ -515,7 +591,7 @@ export class CalendarView extends ItemView {
             this.trayActionAdded = true;
             // Through `this`: the action outlives re-renders, the elements
             // (and the closure above) don't.
-            this.addAction("list-checks", "Today and this week", () =>
+            this.addAction("list-checks", "今日と今週", () =>
                 this.toggleMobileTray?.()
             );
         }
@@ -563,6 +639,11 @@ export class CalendarView extends ItemView {
                         );
                         if (file) {
                             await openFileInLeaf(this.app, file);
+                        } else {
+                            // Nothing to open: at least say what it is.
+                            const menu = new Menu();
+                            this.addRemoteInfo(menu, info.event);
+                            menu.showAtMouseEvent(info.jsEvent);
                         }
                         return;
                     }
@@ -619,10 +700,13 @@ export class CalendarView extends ItemView {
                     return !!didModify;
                 } catch (e: any) {
                     console.error(e);
-                    new Notice(e.message);
+                    new Notice(`動かせませんでした。${e.message}`);
                     return false;
                 }
             },
+            // A block of today's can be started where it stands, and a
+            // running one stopped — no menu in between.
+            eventButton: (e) => this.blockAction(e),
 
             eventMouseEnter: async (info) => {
                 try {
@@ -669,63 +753,50 @@ export class CalendarView extends ItemView {
                     // is structural. A checkbox on a session line would get
                     // copied forward by the daily template's rollover, and
                     // TODO completion is the checkbox on the event itself.
-                    if (
-                        this.isBlockSource(e.source?.id) &&
-                        event.type === "single"
-                    ) {
-                        if (
-                            !event.allDay &&
-                            event.startTime &&
-                            !event.endTime
-                        ) {
-                            menu.addItem((item) =>
-                                item
-                                    .setTitle("Stop working")
-                                    .onClick(async () => {
-                                        await stopSession(this.plugin, {
-                                            id: e.id,
-                                            event,
-                                        });
-                                    })
-                            );
-                        } else {
-                            menu.addItem((item) =>
-                                item
-                                    .setTitle("Start working")
-                                    .onClick(async () => {
-                                        await startSessionFromBlock(
-                                            this.plugin,
-                                            e.id,
-                                            event
-                                        );
-                                    })
-                            );
-                        }
+                    // The same one action the block's own button offers,
+                    // under the same condition (docs/ux.md §2).
+                    const action = this.blockAction(e);
+                    if (action) {
+                        menu.addItem((item) =>
+                            item
+                                .setTitle(action.label)
+                                .setIcon(action.icon)
+                                .onClick(action.onClick)
+                        );
                         menu.addSeparator();
                     }
                     menu.addItem((item) =>
-                        item.setTitle("Go to note").onClick(() => {
-                            if (!this.plugin.cache) {
-                                return;
-                            }
-                            openFileForEvent(this.plugin.cache, this.app, e.id);
-                        })
+                        item
+                            .setTitle("ノートを開く")
+                            .setIcon("file-text")
+                            .onClick(() => {
+                                if (!this.plugin.cache) {
+                                    return;
+                                }
+                                openFileForEvent(
+                                    this.plugin.cache,
+                                    this.app,
+                                    e.id
+                                );
+                            })
                     );
                     menu.addItem((item) =>
-                        item.setTitle("Delete").onClick(async () => {
-                            if (!this.plugin.cache) {
-                                return;
-                            }
-                            await this.plugin.cache.deleteEvent(e.id);
-                            new Notice(`Deleted event "${e.title}".`);
-                        })
+                        item
+                            .setTitle("消す")
+                            .setIcon("trash-2")
+                            .onClick(async () => {
+                                if (!this.plugin.cache) {
+                                    return;
+                                }
+                                await deleteWithUndo(
+                                    this.plugin,
+                                    e.id,
+                                    `「${plainTitle(e.title)}」を消しました。`
+                                );
+                            })
                     );
                 } else {
-                    menu.addItem((item) => {
-                        item.setTitle(
-                            "No actions available on remote events"
-                        ).setDisabled(true);
-                    });
+                    this.addRemoteInfo(menu, e);
                 }
 
                 // The right-click focuses the event element, and FullCalendar
@@ -750,6 +821,17 @@ export class CalendarView extends ItemView {
                 }
 
                 try {
+                    // Ticking what is being worked on also stops its
+                    // clock, as in the tray: finishing is one act.
+                    const session = isDone
+                        ? sessionOfRow(
+                              { title: event.title } as TodayRow,
+                              findRunningSessions(this.plugin)
+                          )
+                        : undefined;
+                    if (session) {
+                        await stopSession(this.plugin, session);
+                    }
                     await this.plugin.cache.updateEventWithId(
                         e.id,
                         toggleTask(event, isDone)

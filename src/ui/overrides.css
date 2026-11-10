@@ -1,3 +1,20 @@
+/* ---- The words of docs/ux.md, as variables ----
+   One place for what a colour means and how long a motion lasts. */
+body {
+    --ofc-running: var(--color-green);
+    --ofc-running-rgb: var(--color-green-rgb);
+    --ofc-late: var(--color-red);
+    --ofc-hand: #14a3a3;
+    /* Small: appears, starts, stops. Medium: one thing done. Large: all of
+       today done. Nothing else moves. */
+    --ofc-fx-s: 200ms;
+    --ofc-fx-m: 700ms;
+    --ofc-fx-l: 1500ms;
+    --ofc-ease: cubic-bezier(0.2, 0.7, 0.4, 1);
+    /* Done: faded. Held: faded, with a dashed edge. */
+    --ofc-done-opacity: 0.6;
+}
+
 .is-phone .fc {
     height: calc(100% - 4rem);
 }
@@ -91,16 +108,15 @@
     z-index: 1;
 }
 
-/* Running work-log session (no endTime yet): translucent while the clock
-   runs — colors are inherited untouched, full opacity returns on stop. */
-.fc .ofc-session-running {
-    opacity: 0.55;
+/* Running work-log session (no endTime yet): the same green edge a running
+   row has in the tray and on the board (docs/ux.md §1). */
+.fc .fc-timegrid-event.ofc-session-running,
+.fc .fc-daygrid-block-event.ofc-session-running {
+    border-left-color: var(--ofc-running) !important;
 }
 
-/* The event fill is the task status color and the border is the source color.
-   A 1px border vanishes against the fill, so widen the left edge into a stripe
-   that keeps the source color readable. For non-task events fill and border are
-   the same source color, so the stripe is simply invisible. */
+/* The bar on the left says what an event belongs to (its project, its
+   calendar); in the month and list views it needs some width to read. */
 .fc-daygrid-event,
 .fc-timegrid-event,
 .fc-list-event {
@@ -124,7 +140,7 @@
 }
 
 .ofc-task-completed {
-    opacity: 0.8;
+    opacity: var(--ofc-done-opacity);
 }
 
 /* Phone: the event checkbox needs a real tap target. */
@@ -171,7 +187,7 @@
         var(--ofc-kanban-cols, 5) * 320px + (var(--ofc-kanban-cols, 5) - 1) *
             var(--size-4-3) + 2 * var(--size-4-2)
     );
-    margin: 0 auto;
+    margin: 0;
 }
 
 /* Keep dropdowns from monopolizing a wrapped row on narrow screens. */
@@ -254,10 +270,11 @@
     min-height: 0;
     overflow-x: auto;
     align-items: flex-start;
-    /* Columns grow to fill the pane up to their max width; any leftover
-	   space is split evenly around the group instead of piling up on the
-	   right. `safe` keeps the first column reachable when they overflow. */
-    justify-content: safe center;
+    /* Columns grow to fill the pane up to their max width and start from
+	   the left. Not centred: the two axes have different numbers of
+	   columns, and a centred group would move the toolbar's controls out
+	   from under the pointer on every switch (docs/ux.md §2). */
+    justify-content: flex-start;
     padding: var(--size-4-2);
 }
 
@@ -337,8 +354,59 @@
     min-height: 3em; /* keep an empty column droppable */
 }
 
-.ofc-kanban-card.ofc-kanban-dragging {
-    opacity: 0.5;
+/* While a card is held: columns that can't take it step back, and an empty
+   one that can says so. */
+.ofc-kanban-holding .ofc-kanban-column-nodrop {
+    opacity: 0.45;
+}
+
+.ofc-kanban-holding
+    .ofc-kanban-column:not(.ofc-kanban-column-nodrop)
+    .ofc-kanban-cards:empty::after {
+    content: "ここへ落とす";
+    color: var(--text-faint);
+    font-size: var(--font-ui-smaller);
+    text-align: center;
+    padding: var(--size-4-2) 0;
+}
+
+/* The copy of a card that follows a finger. */
+.ofc-kanban-ghost {
+    position: fixed;
+    z-index: 1000;
+    pointer-events: none;
+    opacity: 0.9;
+    box-shadow: var(--shadow-s);
+}
+
+/* This week's progress: the tray's bar, over the board. Same width rules as
+   the toolbar, so its edges track the columns'. */
+.ofc-kanban-progress-row {
+    flex-shrink: 0;
+    width: 100%;
+    max-width: calc(
+        var(--ofc-kanban-cols, 5) * 320px + (var(--ofc-kanban-cols, 5) - 1) *
+            var(--size-4-3) + 2 * var(--size-4-2)
+    );
+    margin: 0;
+    padding: var(--size-4-2) var(--size-4-2) 0;
+}
+
+.ofc-kanban-progress-row:empty {
+    display: none;
+}
+
+.ofc-kanban-progress-row .ofc-tray-progress {
+    margin-bottom: 0;
+}
+
+.ofc-kanban-progress {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    font-size: var(--font-ui-small);
+    font-weight: 600;
+    margin-bottom: var(--size-2-2);
 }
 
 /* ---- Event modal ---- */
@@ -444,19 +512,6 @@ button.ofc-modal-danger:not(.clickable-icon):hover {
     color: var(--text-faint);
 }
 
-.ofc-tray-warning {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--size-2-2);
-    font-size: var(--font-ui-smaller);
-    color: var(--text-warning);
-    background-color: var(--background-modifier-error-hover);
-    border-radius: var(--radius-s);
-    padding: var(--size-2-2) var(--size-2-3);
-    margin-bottom: var(--size-2-3);
-}
-
 /* ---- Tray 2.0: manual order, dividers, TODO section ---- */
 
 .ofc-tray-header {
@@ -474,9 +529,11 @@ body.ofc-tray-reorder-active .fc-event-dragging {
     display: none !important;
 }
 
-.ofc-tray-reordering {
-    opacity: 0.55;
-    outline: 1px dashed var(--text-muted);
+/* Held: one look wherever a row is picked up (docs/ux.md §1). */
+.ofc-row.ofc-tray-reordering,
+.ofc-row.ofc-kanban-dragging {
+    opacity: var(--ofc-done-opacity);
+    border-style: dashed;
 }
 
 /* Status groups: derived from workflow status, collapsed by default. */
@@ -517,7 +574,7 @@ body.ofc-tray-reorder-active .fc-event-dragging {
     letter-spacing: 0.05em;
 }
 
-/* Count chip tinted with the group's status color. */
+/* Count chip. Status isn't painted (docs/ux.md §1). */
 .ofc-tray-group-count {
     flex-shrink: 0;
     min-width: 20px;
@@ -526,7 +583,7 @@ body.ofc-tray-reorder-active .fc-event-dragging {
     font-weight: 600;
     border-radius: var(--radius-s);
     padding: 0 var(--size-2-1);
-    background-color: var(--ofc-group-color, var(--background-secondary));
+    background-color: var(--background-secondary);
     color: var(--text-normal);
 }
 
@@ -627,6 +684,172 @@ body.ofc-tray-reorder-active .ofc-tray-group-body:empty {
     font-weight: 400;
     color: var(--text-muted);
     font-variant-numeric: tabular-nums;
+}
+
+/* Today's progress: a thin bar under the heading, in the same green as the
+   running task. Counted from the ticks; nothing is stored. */
+.ofc-tray-progress {
+    height: 3px;
+    border-radius: 2px;
+    background-color: var(--background-modifier-border);
+    margin: 0 0 var(--size-4-2);
+    overflow: hidden;
+}
+
+.ofc-tray-progress-fill {
+    height: 100%;
+    border-radius: 2px;
+    background-color: var(--ofc-running);
+    transition: width var(--ofc-fx-m) var(--ofc-ease);
+}
+
+.ofc-tray-progress-full {
+    animation: ofc-progress-full var(--ofc-fx-m) ease-out;
+}
+
+@keyframes ofc-progress-full {
+    0% {
+        transform: scaleY(1);
+    }
+    30% {
+        transform: scaleY(2.4);
+    }
+    100% {
+        transform: scaleY(1);
+    }
+}
+
+/* ---- Motion: three sizes (docs/ux.md §3) ---- */
+
+/* Small — it appeared. */
+.ofc-fx-arrive {
+    animation: ofc-fx-arrive var(--ofc-fx-s) var(--ofc-ease) backwards;
+}
+
+@keyframes ofc-fx-arrive {
+    0% {
+        opacity: 0;
+        transform: translateY(-6px);
+    }
+}
+
+/* Small — its clock started or stopped. */
+.ofc-fx-touch {
+    animation: ofc-fx-touch var(--ofc-fx-s) ease-out backwards;
+}
+
+@keyframes ofc-fx-touch {
+    0% {
+        background-color: rgba(var(--ofc-running-rgb), 0.3);
+    }
+}
+
+/* Medium — one thing done: it lights green, then settles into done. */
+.ofc-fx-done {
+    animation: ofc-fx-done var(--ofc-fx-m) ease-out;
+}
+
+@keyframes ofc-fx-done {
+    0% {
+        opacity: 1;
+        background-color: rgba(var(--ofc-running-rgb), 0.28);
+        transform: scale(1.015);
+    }
+    60% {
+        opacity: 1;
+        background-color: rgba(var(--ofc-running-rgb), 0.1);
+        transform: scale(1);
+    }
+    100% {
+        opacity: var(--ofc-done-opacity);
+    }
+}
+
+/* All of today done: the count turns green and pops, every row answers in
+   turn, and green bits fall from the top of the tray. Still one colour. */
+.ofc-tray-count-full {
+    color: var(--ofc-running);
+    font-weight: 600;
+}
+
+.ofc-tray-count-pop {
+    display: inline-block;
+    transform-origin: right center;
+    animation: ofc-count-pop var(--ofc-fx-m) var(--ofc-ease);
+}
+
+@keyframes ofc-count-pop {
+    0% {
+        transform: scale(0.8);
+    }
+    35% {
+        transform: scale(1.35);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+.ofc-row-wave {
+    animation: ofc-row-wave var(--ofc-fx-m) ease-out backwards;
+}
+
+@keyframes ofc-row-wave {
+    0% {
+        opacity: var(--ofc-done-opacity);
+    }
+    35% {
+        opacity: 1;
+        background-color: rgba(var(--ofc-running-rgb), 0.3);
+        transform: translateX(4px);
+    }
+    100% {
+        opacity: var(--ofc-done-opacity);
+        transform: translateX(0);
+    }
+}
+
+.ofc-tray-burst {
+    position: sticky;
+    top: 0;
+    height: 0;
+    z-index: 5;
+    pointer-events: none;
+}
+
+.ofc-tray-burst-bit {
+    position: absolute;
+    top: 0;
+    width: 6px;
+    height: 10px;
+    border-radius: 2px;
+    background-color: var(--ofc-running);
+    pointer-events: none;
+    animation: ofc-burst-bit var(--ofc-fx-l) var(--ofc-ease) both;
+}
+
+@keyframes ofc-burst-bit {
+    0% {
+        transform: translate(0, -8px) rotate(0deg);
+    }
+    100% {
+        transform: translate(var(--dx), var(--dy)) rotate(var(--turn));
+        opacity: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ofc-row-wave,
+    .ofc-fx-arrive,
+    .ofc-fx-touch,
+    .ofc-tray-count-pop,
+    .ofc-fx-done,
+    .ofc-tray-progress-full {
+        animation: none;
+    }
+    .ofc-tray-progress-fill {
+        transition: none;
+    }
 }
 
 .ofc-tray-section {
@@ -750,7 +973,7 @@ body.ofc-tray-reorder-active .ofc-tray-group-body:empty {
 
 .ofc-row-due-urgent,
 .ofc-row-stale {
-    color: var(--color-red);
+    color: var(--ofc-late);
     font-weight: 600;
 }
 
@@ -760,7 +983,7 @@ body.ofc-tray-reorder-active .ofc-tray-group-body:empty {
 
 /* Done rows stay listed (glanceable retro, undo-able mis-taps) but recede. */
 .ofc-row-done {
-    opacity: 0.6;
+    opacity: var(--ofc-done-opacity);
 }
 
 .ofc-row-done .ofc-row-title {
@@ -770,7 +993,7 @@ body.ofc-tray-reorder-active .ofc-tray-group-body:empty {
 /* The running task: a green edge, bold small print, a filled stop button —
    one "recording" signal. !important beats the inline project colour. */
 .ofc-row-running {
-    border-left-color: var(--color-green) !important;
+    border-left-color: var(--ofc-running) !important;
 }
 
 .ofc-row-running .ofc-row-meta {
@@ -814,9 +1037,9 @@ body.ofc-tray-reorder-active .ofc-tray-group-body:empty {
 }
 
 .ofc-row-running .ofc-row-btn:not(.ofc-row-btn-quiet):not(.clickable-icon) {
-    background-color: var(--color-green);
-    border-color: var(--color-green);
-    color: white;
+    background-color: var(--ofc-running);
+    border-color: var(--ofc-running);
+    color: var(--text-on-accent);
 }
 
 /* Rare actions (taking a task off today) show on hover, and always on
@@ -945,7 +1168,7 @@ textarea.ofc-tray-memo-editor:focus {
    their own fall back to the accent, and hands must not look like those.
    Teal is the one hue no project or calendar in use has taken. */
 .fc .ofc-event-hand {
-    --ofc-event-color: #14a3a3 !important;
+    --ofc-event-color: var(--ofc-hand) !important;
 }
 
 /* A block from the daily note's Plan — meant, not yet spent: lighter, with
@@ -1045,12 +1268,6 @@ textarea.ofc-tray-memo-editor:focus {
     color: var(--text-accent);
 }
 
-/* A row being dragged to a new place in today's list. */
-.ofc-tray-today .ofc-row.ofc-tray-reordering {
-    opacity: 0.6;
-    border-style: dashed;
-}
-
 /* Status bar: the running line (green dot) or the next one. */
 .status-bar-item.ofc-status {
     max-width: 28em;
@@ -1060,7 +1277,7 @@ textarea.ofc-tray-memo-editor:focus {
 }
 
 .status-bar-item.ofc-status.ofc-status-running {
-    color: var(--color-green);
+    color: var(--ofc-running);
     font-weight: 600;
 }
 
@@ -1092,4 +1309,71 @@ textarea.ofc-tray-memo-editor:focus {
 
 .ofc-memo-page .cm-editor.cm-focused {
     outline: none;
+}
+
+/* ---- Undo (docs/ux.md §4) ---- */
+
+.ofc-undo {
+    display: flex;
+    align-items: center;
+    gap: var(--size-4-3);
+}
+
+.ofc-undo-btn {
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+/* The running clock in a row's small print. */
+.ofc-row-elapsed {
+    font-variant-numeric: tabular-nums;
+}
+
+/* On today's list. */
+.ofc-row-today {
+    font-weight: 600;
+    color: var(--text-normal);
+}
+
+/* The one button a calendar block may carry (start, or stop): the row's
+   button, tucked into the block's corner. */
+.fc .fc-timegrid-event .ofc-event-btn:not(.clickable-icon) {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 20px;
+    height: 20px;
+    z-index: 3;
+    background-color: var(--background-primary);
+}
+
+.fc .ofc-event-btn .svg-icon {
+    width: 12px;
+    height: 12px;
+}
+
+.fc .fc-timegrid-event.ofc-session-running .ofc-event-btn:not(.clickable-icon) {
+    background-color: var(--ofc-running);
+    border-color: var(--ofc-running);
+    color: var(--text-on-accent);
+}
+
+.fc .fc-daygrid-event .ofc-event-btn,
+.fc .fc-list-event .ofc-event-btn {
+    display: none;
+}
+
+/* Past weeks' Done, folded under one quiet line at the foot of the column. */
+button.ofc-kanban-fold:not(.clickable-icon) {
+    background-color: transparent;
+    box-shadow: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    cursor: pointer;
+    padding: var(--size-2-2);
+}
+
+button.ofc-kanban-fold:not(.clickable-icon):hover {
+    color: var(--text-normal);
 }

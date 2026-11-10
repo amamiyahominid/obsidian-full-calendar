@@ -1,3 +1,5 @@
+import { deleteWithUndo } from "./undo";
+import { plainTitle } from "../core/today";
 import { Notice } from "obsidian";
 import * as React from "react";
 import { EditableCalendar } from "src/calendars/EditableCalendar";
@@ -30,7 +32,6 @@ export function launchCreateModal(
         React.createElement(EditEvent, {
             initialEvent: partialEvent,
             calendars,
-            issuesCalendarId: plugin.issuesSourceId(),
             defaultCalendarIndex: defaultIndex === -1 ? 0 : defaultIndex,
             submit: async (data, calendarIndex) => {
                 const calendarId = calendars[calendarIndex].id;
@@ -38,7 +39,7 @@ export function launchCreateModal(
                     await plugin.cache.addEvent(calendarId, data);
                 } catch (e) {
                     if (e instanceof Error) {
-                        new Notice("Error when creating event: " + e.message);
+                        new Notice("作れませんでした。" + e.message);
                         console.error(e);
                     }
                 }
@@ -72,7 +73,6 @@ export function launchEditModal(plugin: FullCalendarPlugin, eventId: string) {
         React.createElement(EditEvent, {
             initialEvent: eventToEdit,
             calendars,
-            issuesCalendarId: plugin.issuesSourceId(),
             defaultCalendarIndex: calIdx,
             submit: async (data, calendarIndex) => {
                 try {
@@ -85,7 +85,7 @@ export function launchEditModal(plugin: FullCalendarPlugin, eventId: string) {
                     await plugin.cache.updateEventWithId(eventId, data);
                 } catch (e) {
                     if (e instanceof Error) {
-                        new Notice("Error when updating event: " + e.message);
+                        new Notice("直せませんでした。" + e.message);
                         console.error(e);
                     }
                 }
@@ -96,11 +96,15 @@ export function launchEditModal(plugin: FullCalendarPlugin, eventId: string) {
             },
             deleteEvent: async () => {
                 try {
-                    await plugin.cache.deleteEvent(eventId);
+                    await deleteWithUndo(
+                        plugin,
+                        eventId,
+                        `「${plainTitle(eventToEdit.title)}」を消しました。`
+                    );
                     closeModal();
                 } catch (e) {
                     if (e instanceof Error) {
-                        new Notice("Error when deleting event: " + e.message);
+                        new Notice("消せませんでした。" + e.message);
                         console.error(e);
                     }
                 }

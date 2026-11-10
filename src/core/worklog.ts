@@ -84,9 +84,7 @@ export async function createSession(
         (ahead ? getPlanCalendarId(plugin) : null) ??
         getWorklogCalendarId(plugin);
     if (!calendarId) {
-        notify(
-            'No work-log calendar configured. Add a "Daily Note" calendar in the Full Calendar settings — sessions are written under its heading.'
-        );
+        notify("日の記録に Log の見出しが見つかりません。");
         return false;
     }
     const date = dt.toISODate();
@@ -263,8 +261,8 @@ export async function stopSession(
 }
 
 /**
- * Re-open an existing session block as THE running session (any other
- * running session is stopped first). A block on today keeps its planned
+ * Re-open an existing session block as a running session (alongside any
+ * others that are running). A block on today keeps its planned
  * startTime — clearing only endTime — unless that time is still ahead of
  * the clock (starting early: a session can't run from the future). Blocks
  * on other days move to today and start now; their planned time says
@@ -277,11 +275,6 @@ export async function startSessionFromBlock(
 ): Promise<boolean> {
     if (event.type !== "single") {
         return false;
-    }
-    for (const running of findRunningSessions(plugin)) {
-        if (running.id !== id) {
-            await stopSession(plugin, running);
-        }
     }
     const now = DateTime.now();
     const today = now.toISODate();
@@ -344,22 +337,25 @@ export async function startSessionFromBlock(
 }
 
 /**
- * Start working on a task now: writes a running session line into today's
- * daily note. One thing at a time — any currently running session is stopped
- * first, so switching tasks is a single click.
+ * Start working on something now: writes a running session line into
+ * today's daily note. Other running sessions are left running — several
+ * things can be under way at once (work handed to agents in parallel, say),
+ * each with its own clock. Starting what is already running does nothing.
  */
 export async function startSession(
     plugin: FullCalendarPlugin,
     taskLink: string
 ): Promise<boolean> {
-    for (const running of findRunningSessions(plugin)) {
-        await stopSession(plugin, running);
+    if (
+        findRunningSessions(plugin).some(
+            (r) => r.event.title.trim() === taskLink.trim()
+        )
+    ) {
+        return true;
     }
     const calendarId = getWorklogCalendarId(plugin);
     if (!calendarId) {
-        notify(
-            'No work-log calendar configured. Add a "Daily Note" calendar in the Full Calendar settings — sessions are written under its heading.'
-        );
+        notify("日の記録に Log の見出しが見つかりません。");
         return false;
     }
     const now = DateTime.now();

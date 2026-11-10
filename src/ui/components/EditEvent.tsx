@@ -138,8 +138,8 @@ const RecurrencePattern = ({
                 })
             }
         >
-            <option value="dayOfMonth">on day</option>
-            <option value="weekday">on the</option>
+            <option value="dayOfMonth">日付で</option>
+            <option value="weekday">曜日で</option>
         </select>{" "}
         {value.dayMode === "dayOfMonth" ? (
             <select
@@ -193,9 +193,6 @@ interface EditEventProps {
         todos?: boolean;
     }[];
     defaultCalendarIndex: number;
-    // The issues folder's calendar id, when one is configured. Used to keep
-    // issues and project tasks from being moved into each other.
-    issuesCalendarId?: string | null;
     initialEvent?: Partial<OFCEvent>;
     open?: () => Promise<void>;
     deleteEvent?: () => Promise<void>;
@@ -208,7 +205,6 @@ export const EditEvent = ({
     deleteEvent,
     calendars,
     defaultCalendarIndex,
-    issuesCalendarId,
 }: EditEventProps) => {
     const [date, setDate] = useState(
         initialEvent
@@ -285,27 +281,11 @@ export const EditEvent = ({
                 initialEvent.completed !== null) ||
                 initialEvent.status !== undefined)
         );
-    // The event's current home decides what it may be moved to. Crossing
-    // between the issues folder and a project's tasks folder isn't a move,
-    // it's a conversion — a question would become a task on save — so the
-    // two kinds never appear in the same list.
-    const isIssueHome =
-        !!issuesCalendarId &&
-        calendars[defaultCalendarIndex]?.id === issuesCalendarId;
     const selectableCalendars = calendars
         .map((cal, idx) => ({ cal, idx }))
         .filter(({ cal }) => {
             if (dailyOnly) {
                 return cal.type === "dailynote";
-            }
-            // An issue has exactly one home, which leaves nothing to pick;
-            // the picker hides itself below when only one option remains.
-            if (isIssueHome) {
-                return cal.id === issuesCalendarId;
-            }
-            // And nothing else may be filed into the issues folder.
-            if (issuesCalendarId && cal.id === issuesCalendarId) {
-                return false;
             }
             return cal.type === "local" || cal.type === "dailynote";
         });
@@ -502,7 +482,7 @@ export const EditEvent = ({
                 <p style={{ float: "right" }}>
                     {open && (
                         <button className="ofc-modal-secondary" onClick={open}>
-                            Open Note
+                            ノートを開く
                         </button>
                     )}
                 </p>
@@ -515,7 +495,7 @@ export const EditEvent = ({
                         type="text"
                         id="title"
                         value={title}
-                        placeholder={"Add title"}
+                        placeholder={"題"}
                         required
                         onChange={makeChangeListener(setTitle, (x) => x)}
                     />
@@ -594,7 +574,7 @@ export const EditEvent = ({
                 )}
                 {isTodoTarget && isTask && (
                     <p>
-                        <label htmlFor="todoComplete">Completed </label>
+                        <label htmlFor="todoComplete">済み </label>
                         <input
                             id="todoComplete"
                             checked={
@@ -607,7 +587,7 @@ export const EditEvent = ({
                 )}
                 {((!isDailyNote && !isTask) || isTodoTarget) && (
                     <p>
-                        <label htmlFor="allDay">All day event </label>
+                        <label htmlFor="allDay">終日 </label>
                         <input
                             id="allDay"
                             checked={allDay}
@@ -618,7 +598,7 @@ export const EditEvent = ({
                 )}
                 {!isDailyNote && !isTask && (
                     <p>
-                        <label htmlFor="recurring">Recurring Event </label>
+                        <label htmlFor="recurring">繰り返す </label>
                         <input
                             id="recurring"
                             checked={isRecurring}
@@ -631,7 +611,7 @@ export const EditEvent = ({
                 {isRecurring && (
                     <>
                         <p>
-                            <label htmlFor="frequency">Repeats </label>
+                            <label htmlFor="frequency">頻度 </label>
                             <select
                                 id="frequency"
                                 value={frequency}
@@ -639,9 +619,9 @@ export const EditEvent = ({
                                     setFrequency(e.target.value as Frequency)
                                 }
                             >
-                                <option value="weekly">Weekly</option>
-                                <option value="monthly">Monthly</option>
-                                <option value="yearly">Yearly</option>
+                                <option value="weekly">毎週</option>
+                                <option value="monthly">毎月</option>
+                                <option value="yearly">毎年</option>
                             </select>
                         </p>
 
@@ -690,7 +670,7 @@ export const EditEvent = ({
                 {!isDailyNote && isTask && (
                     <>
                         <p>
-                            <label htmlFor="status">Status </label>
+                            <label htmlFor="status">状態 </label>
                             <select
                                 id="status"
                                 value={status}
@@ -714,13 +694,13 @@ export const EditEvent = ({
                             </select>
                         </p>
                         <p>
-                            <label htmlFor="sprint">Sprint </label>
+                            <label htmlFor="sprint">週 </label>
                             <select
                                 id="sprint"
                                 value={sprint}
                                 onChange={(e) => setSprint(e.target.value)}
                             >
-                                <option value="">No sprint</option>
+                                <option value="">週は未定</option>
                                 {sprintChoices.map((week, i) => (
                                     <option key={week} value={week}>
                                         {i === 0 ? `${week} (this week)` : week}
@@ -729,7 +709,7 @@ export const EditEvent = ({
                             </select>
                         </p>
                         <p>
-                            <label htmlFor="due">Due </label>
+                            <label htmlFor="due">期限 </label>
                             <input
                                 id="due"
                                 type="date"
@@ -738,7 +718,7 @@ export const EditEvent = ({
                             />
                         </p>
                         <p>
-                            <label htmlFor="estimate">Estimate (min) </label>
+                            <label htmlFor="estimate">見積（分） </label>
                             <input
                                 id="estimate"
                                 type="number"
@@ -753,7 +733,7 @@ export const EditEvent = ({
                             />
                         </p>
                         <p>
-                            <label htmlFor="link">Link </label>
+                            <label htmlFor="link">リンク </label>
                             <input
                                 id="link"
                                 type="text"
@@ -773,7 +753,7 @@ export const EditEvent = ({
                     }}
                 >
                     <button type="submit" className="mod-cta">
-                        Save Event
+                        保存
                     </button>
                     <span>
                         {deleteEvent && (
@@ -782,7 +762,7 @@ export const EditEvent = ({
                                 className="ofc-modal-danger"
                                 onClick={deleteEvent}
                             >
-                                Delete Event
+                                消す
                             </button>
                         )}
                     </span>

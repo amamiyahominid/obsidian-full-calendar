@@ -9,13 +9,7 @@ import {
     TFolder,
 } from "obsidian";
 import { makeDefaultPartialCalendarSource, CalendarInfo } from "../types";
-import {
-    configureStatuses,
-    DEFAULT_STATUSES,
-    DEFAULT_UNCHECK_STATUS,
-    nextSourceColor,
-    StatusDef,
-} from "./colors";
+import { nextSourceColor } from "./colors";
 import { CalendarSettings } from "./components/CalendarSetting";
 import { AddCalendarSource } from "./components/AddCalendarSource";
 import * as ReactDOM from "react-dom";
@@ -34,10 +28,6 @@ export interface FullCalendarSettings {
     };
     timeFormat24h: boolean;
     clickToCreateEventFromMonthView: boolean;
-    // Folder of term notes (frontmatter `start`/`end`, a table with a 手
-    // column). The term covering a selected day offers its hands in the
-    // session picker. Empty string disables the feature.
-    termFolder: string;
     // Fire a native OS notification before timed events start. Desktop-only.
     enableReminders: boolean;
     // How many minutes before an event's start to notify.
@@ -53,15 +43,9 @@ export interface FullCalendarSettings {
     // stored "issue" as a third axis; readers treat that as scope=issue.
     kanbanFilters: {
         project: string | null;
-        // Projects tab filters by calendar source (`project`); the Issues tab
-        // filters by the `project:` frontmatter name instead, so it needs its
-        // own slot. Optional: settings saved before it existed read as
-        // undefined and fall back to "no filter".
-        issueProject?: string | null;
         sprint: string;
         hideDone: boolean;
-        groupBy?: "status" | "sprint" | "issue";
-        scope?: "projects" | "issue";
+        groupBy?: "status" | "sprint";
     };
     // Width of the task tray beside the calendar, in px. Set by dragging the
     // tray's resize handle.
@@ -71,13 +55,6 @@ export interface FullCalendarSettings {
     // Tray status groups the user has expanded (keyed by status name).
     // Missing means collapsed — groups exist to get cards out of the way.
     trayExpanded: Record<string, boolean>;
-    // Workflow stages in kanban column order, with their fill colors. The
-    // LAST stage counts as "done" (checked on the calendar). Renaming a
-    // stage does NOT rewrite existing task notes — unknown statuses surface
-    // as extra kanban columns rather than disappearing.
-    statuses: StatusDef[];
-    // The stage a task returns to when its checkbox is unticked.
-    uncheckStatus: string;
 }
 
 export const DEFAULT_SETTINGS: FullCalendarSettings = {
@@ -90,22 +67,17 @@ export const DEFAULT_SETTINGS: FullCalendarSettings = {
     },
     timeFormat24h: false,
     clickToCreateEventFromMonthView: true,
-    termFolder: "20_journal/term",
     enableReminders: false,
     reminderMinutesBefore: 10,
     kanbanFilters: {
         project: null,
-        issueProject: null,
         sprint: "all",
         hideDone: false,
         groupBy: "status",
-        scope: "projects",
     },
     trayWidth: 220,
     memoWidth: 300,
     trayExpanded: {},
-    statuses: DEFAULT_STATUSES,
-    uncheckStatus: DEFAULT_UNCHECK_STATUS,
 };
 
 const WEEKDAYS = [
@@ -146,8 +118,8 @@ export function addCalendarButton(
         .map((f) => f.path);
 
     return new Setting(containerEl)
-        .setName("Calendars")
-        .setDesc("Add calendar")
+        .setName("カレンダー")
+        .setDesc("カレンダーを足す")
         .addDropdown(
             (d) =>
                 (dropdown = d.addOptions({
@@ -257,10 +229,10 @@ export class FullCalendarSettingTab extends PluginSettingTab {
         const { containerEl } = this;
         containerEl.empty();
 
-        containerEl.createEl("h2", { text: "Calendar Preferences" });
+        containerEl.createEl("h2", { text: "カレンダーの表示" });
         new Setting(containerEl)
-            .setName("Desktop Initial View")
-            .setDesc("Choose the initial view range on desktop devices.")
+            .setName("最初の表示（パソコン）")
+            .setDesc("パソコンで開いたときに見せる範囲。")
             .addDropdown((dropdown) => {
                 Object.entries(INITIAL_VIEW_OPTIONS.DESKTOP).forEach(
                     ([value, display]) => {
@@ -275,8 +247,8 @@ export class FullCalendarSettingTab extends PluginSettingTab {
             });
 
         new Setting(containerEl)
-            .setName("Mobile Initial View")
-            .setDesc("Choose the initial view range on mobile devices.")
+            .setName("最初の表示（スマホ）")
+            .setDesc("スマホで開いたときに見せる範囲。")
             .addDropdown((dropdown) => {
                 Object.entries(INITIAL_VIEW_OPTIONS.MOBILE).forEach(
                     ([value, display]) => {
@@ -291,8 +263,8 @@ export class FullCalendarSettingTab extends PluginSettingTab {
             });
 
         new Setting(containerEl)
-            .setName("Starting Day of the Week")
-            .setDesc("Choose what day of the week to start.")
+            .setName("週の始まり")
+            .setDesc("週を何曜日から始めるか。")
             .addDropdown((dropdown) => {
                 WEEKDAYS.forEach((day, code) => {
                     dropdown.addOption(code.toString(), day);
@@ -305,8 +277,8 @@ export class FullCalendarSettingTab extends PluginSettingTab {
             });
 
         new Setting(containerEl)
-            .setName("24-hour format")
-            .setDesc("Display the time in a 24-hour format.")
+            .setName("24時間表記")
+            .setDesc("時刻を24時間で出す。")
             .addToggle((toggle) => {
                 toggle.setValue(this.plugin.settings.timeFormat24h);
                 toggle.onChange(async (val) => {
@@ -316,8 +288,8 @@ export class FullCalendarSettingTab extends PluginSettingTab {
             });
 
         new Setting(containerEl)
-            .setName("Click on a day in month view to create event")
-            .setDesc("Switch off to open day view on click instead.")
+            .setName("月の表示で、日を押して枠を作る")
+            .setDesc("オフにすると、押した日の表示に移る。")
             .addToggle((toggle) => {
                 toggle.setValue(
                     this.plugin.settings.clickToCreateEventFromMonthView
@@ -328,30 +300,9 @@ export class FullCalendarSettingTab extends PluginSettingTab {
                 });
             });
 
+        containerEl.createEl("h2", { text: "知らせ" });
         new Setting(containerEl)
-            .setName("Term Folder")
-            .setDesc(
-                "Term notes with start/end frontmatter and a table with a " +
-                    "手 column. Selecting an empty range on the calendar " +
-                    "offers the hands of the term covering that day, above " +
-                    "this sprint's tasks."
-            )
-            .addDropdown((dropdown) => {
-                dropdown.addOption("", "(None)");
-                this.app.vault
-                    .getAllLoadedFiles()
-                    .filter((f) => f instanceof TFolder)
-                    .forEach((f) => dropdown.addOption(f.path, f.path));
-                dropdown.setValue(this.plugin.settings.termFolder || "");
-                dropdown.onChange(async (folder) => {
-                    this.plugin.settings.termFolder = folder;
-                    await this.plugin.saveSettings();
-                });
-            });
-
-        containerEl.createEl("h2", { text: "Reminders" });
-        new Setting(containerEl)
-            .setName("Notify before events start")
+            .setName("始まる前に知らせる")
             .setDesc(
                 "Show a native OS notification before timed events begin. " +
                     "Desktop only — Obsidian must be running. Covers all " +
@@ -366,8 +317,8 @@ export class FullCalendarSettingTab extends PluginSettingTab {
             });
 
         new Setting(containerEl)
-            .setName("Minutes before")
-            .setDesc("How many minutes before the start time to notify.")
+            .setName("何分前に")
+            .setDesc("始まりの何分前に知らせるか。")
             .addText((text) => {
                 text.inputEl.type = "number";
                 text.inputEl.min = "0";
@@ -384,102 +335,7 @@ export class FullCalendarSettingTab extends PluginSettingTab {
                 });
             });
 
-        containerEl.createEl("h2", { text: "Workflow statuses" });
-        containerEl.createEl("p", {
-            cls: "setting-item-description",
-            text: "Stages in kanban column order. The last stage counts as done. Renaming a stage does not rewrite existing notes — old values show up as extra columns.",
-        });
-        // Persist + apply without the full cache reset: statuses only affect
-        // how things render, so a light save and a view resync suffice.
-        const applyStatuses = async (rerender: boolean) => {
-            await this.plugin.saveData(this.plugin.settings);
-            configureStatuses(
-                this.plugin.settings.statuses,
-                this.plugin.settings.uncheckStatus
-            );
-            this.plugin.cache.resync();
-            if (rerender) {
-                this.display();
-            }
-        };
-        this.plugin.settings.statuses.forEach((status, idx) => {
-            const row = new Setting(containerEl);
-            row.addText((text) => {
-                text.setValue(status.name).onChange(async (val) => {
-                    this.plugin.settings.statuses[idx].name = val;
-                    await applyStatuses(false);
-                });
-            });
-            row.addColorPicker((picker) => {
-                picker.setValue(status.color).onChange(async (val) => {
-                    this.plugin.settings.statuses[idx].color = val;
-                    await applyStatuses(false);
-                });
-            });
-            row.addToggle((toggle) => {
-                const isLast = idx === this.plugin.settings.statuses.length - 1;
-                toggle
-                    .setTooltip(
-                        "Tuck away in tray: this status's group starts " +
-                            "collapsed (the last stage always does)"
-                    )
-                    .setValue(isLast || status.trayGroup === true)
-                    .setDisabled(isLast)
-                    .onChange(async (val) => {
-                        this.plugin.settings.statuses[idx].trayGroup = val;
-                        await applyStatuses(false);
-                    });
-            });
-            row.addExtraButton((btn) => {
-                btn.setIcon("arrow-up")
-                    .setTooltip("Move up")
-                    .setDisabled(idx === 0)
-                    .onClick(async () => {
-                        const statuses = this.plugin.settings.statuses;
-                        [statuses[idx - 1], statuses[idx]] = [
-                            statuses[idx],
-                            statuses[idx - 1],
-                        ];
-                        await applyStatuses(true);
-                    });
-            });
-            row.addExtraButton((btn) => {
-                btn.setIcon("trash")
-                    .setTooltip("Remove")
-                    .setDisabled(this.plugin.settings.statuses.length <= 1)
-                    .onClick(async () => {
-                        this.plugin.settings.statuses.splice(idx, 1);
-                        await applyStatuses(true);
-                    });
-            });
-        });
-        new Setting(containerEl).addButton((btn) => {
-            btn.setButtonText("Add status").onClick(async () => {
-                this.plugin.settings.statuses.push({
-                    name: "New status",
-                    color: "#cccccc",
-                });
-                await applyStatuses(true);
-            });
-        });
-        new Setting(containerEl)
-            .setName("Status after unchecking")
-            .setDesc(
-                "The stage a task returns to when its checkbox is unticked on the calendar."
-            )
-            .addDropdown((dropdown) => {
-                for (const s of this.plugin.settings.statuses) {
-                    dropdown.addOption(s.name, s.name);
-                }
-                dropdown
-                    .setValue(this.plugin.settings.uncheckStatus)
-                    .onChange(async (val) => {
-                        this.plugin.settings.uncheckStatus = val;
-                        await applyStatuses(false);
-                    });
-            });
-
-        containerEl.createEl("h2", { text: "Manage Calendars" });
+        containerEl.createEl("h2", { text: "カレンダーの管理" });
         addCalendarButton(
             this.app,
             this.plugin,

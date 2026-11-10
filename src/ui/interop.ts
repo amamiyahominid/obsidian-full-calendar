@@ -3,7 +3,7 @@ import { OFCEvent } from "../types";
 
 import { DateTime, Duration } from "luxon";
 import { rrulestr } from "rrule";
-import { contrastTextColor, getStatusColor, isDoneStatus } from "./colors";
+import { isDoneStatus } from "./colors";
 
 /*
  * Functions for converting between the types used by the FullCalendar view plugin and types used internally by Obsidian Full Calendar.
@@ -303,16 +303,6 @@ export function toEventInput(
                 end: frontmatter.endDate || undefined,
                 extendedProps: taskProps,
             };
-        }
-    }
-
-    // Color the fill by task status (border stays the source color, which the
-    // FullCalendar source applies). Unknown/absent statuses keep source color.
-    if (frontmatter.type === "single" && frontmatter.status) {
-        const statusColor = getStatusColor(frontmatter.status);
-        if (statusColor) {
-            event.backgroundColor = statusColor;
-            event.textColor = contrastTextColor(statusColor);
         }
     }
 

@@ -15,6 +15,8 @@ import listPlugin from "@fullcalendar/list";
 import interactionPlugin from "@fullcalendar/interaction";
 import googleCalendarPlugin from "@fullcalendar/google-calendar";
 import iCalendarPlugin from "@fullcalendar/icalendar";
+import jaLocale from "@fullcalendar/core/locales/ja";
+import { setIcon } from "obsidian";
 import { expandRRuleOccurrences } from "./rruleExpand";
 
 // FullCalendar's stock rrule expansion misbehaves around DST boundaries and
@@ -53,6 +55,13 @@ interface ExtraRenderProps {
         event: EventApi;
         revert: () => void;
     }) => Promise<void>;
+    // The one button a block may carry: start it, or stop it. The same
+    // icons and words as a row's (docs/ux.md §2). null → no button.
+    eventButton?: (event: EventApi) => {
+        icon: string;
+        label: string;
+        onClick: () => unknown;
+    } | null;
 }
 
 export function renderCalendar(
@@ -70,7 +79,15 @@ export function renderCalendar(
         openContextMenuForEvent,
         toggleTask,
         onExternalDrop,
+        eventButton,
     } = settings || {};
+
+    // A block answers once when it appears because of something the user
+    // did (docs/ux.md §3) — not when the calendar opens or the dates move,
+    // which mount blocks that were simply not on screen before.
+    const seenEvents = new Set<string>();
+    let quietUntil = Date.now() + 1500;
+    const openAt = new Date(Date.now() - 60 * 60 * 1000);
     const modifyEventCallback =
         modifyEvent &&
         (async ({
@@ -105,8 +122,14 @@ export function renderCalendar(
         initialView:
             settings?.initialView?.[isNarrow ? "mobile" : "desktop"] ||
             (isNarrow ? "timeGrid3Days" : "timeGridWeek"),
+        locale: jaLocale,
         nowIndicator: true,
+        // Open on now (an hour of what came before above it), not at 6am.
+        scrollTime: `${String(openAt.getHours()).padStart(2, "0")}:00:00`,
         scrollTimeReset: false,
+        datesSet: () => {
+            quietUntil = Date.now() + 800;
+        },
         dayMaxEvents: true,
 
         headerToolbar: !isNarrow
@@ -132,7 +155,7 @@ export function renderCalendar(
             timeGridDay: {
                 type: "timeGrid",
                 duration: { days: 1 },
-                buttonText: isNarrow ? "1" : "day",
+                buttonText: isNarrow ? "1" : "日",
             },
             timeGrid3Days: {
                 type: "timeGrid",
@@ -244,6 +267,28 @@ export function renderCalendar(
                     return;
                 }
             }
+            if (event.id) {
+                if (!seenEvents.has(event.id) && Date.now() > quietUntil) {
+                    el.addClass("ofc-fx-arrive");
+                }
+                seenEvents.add(event.id);
+            }
+            const button = eventButton?.(event);
+            if (button) {
+                const btn = el.createEl("button", {
+                    cls: "ofc-row-btn ofc-event-btn",
+                });
+                setIcon(btn, button.icon);
+                btn.setAttr("aria-label", button.label);
+                // Not a drag, not a click on the block.
+                btn.onmousedown = (e) => e.stopPropagation();
+                btn.ontouchstart = (e) => e.stopPropagation();
+                btn.onclick = (e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    button.onClick();
+                };
+            }
             el.addEventListener("contextmenu", (e) => {
                 e.preventDefault();
                 openContextMenuForEvent && openContextMenuForEvent(event, e);
@@ -254,6 +299,10 @@ export function renderCalendar(
                     checkbox.type = "checkbox";
                     checkbox.checked =
                         event.extendedProps.taskCompleted !== false;
+                    checkbox.setAttribute(
+                        "aria-label",
+                        checkbox.checked ? "済みを外す" : "済みにする"
+                    );
                     checkbox.onclick = async (e) => {
                         e.stopPropagation();
                         if (e.target) {

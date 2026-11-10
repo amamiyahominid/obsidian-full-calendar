@@ -17,7 +17,7 @@ const calendarOptionsSchema = z.discriminatedUnion("type", [
     // these out from the vault's project notes (docs/format.md).
     z.object({
         type: z.literal("notes"),
-        kind: z.enum(["task", "issue"]),
+        kind: z.enum(["task"]),
         project: z.string().optional(),
         projectPath: z.string().optional(),
     }),

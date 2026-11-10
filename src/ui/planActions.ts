@@ -93,8 +93,8 @@ export async function confirmPlanFor(
         new Notice("Log に写す枠はありません。");
         return;
     }
+    // No notice: the blocks themselves turn from planned to spent.
     await plugin.app.vault.modify(file, next);
-    new Notice(`${date}：Plan の枠を ${moved} 本、Log に写しました。`);
 }
 
 /**

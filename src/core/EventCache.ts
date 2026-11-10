@@ -220,7 +220,7 @@ export default class EventCache {
     private scheduleLoadRetry(calendars: Calendar[]): void {
         if (this.populateRetries >= 5) {
             notify(
-                "Full Calendar: some calendars failed to load. Check the developer console for details."
+                "読み込めなかったカレンダーがあります。詳しくは開発者コンソールに出ています。"
             );
             return;
         }
@@ -777,7 +777,7 @@ export default class EventCache {
             );
             if (errors.length > 0) {
                 notify(
-                    "A remote calendar failed to load. Check the console for more details."
+                    "外のカレンダーを取り直せませんでした。詳しくは開発者コンソールに出ています。"
                 );
                 errors.forEach((reason) => {
                     console.error(`Revalidation failed with reason: ${reason}`);
