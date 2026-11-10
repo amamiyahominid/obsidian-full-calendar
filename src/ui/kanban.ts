@@ -215,7 +215,13 @@ export class KanbanView extends ItemView {
         // axis the columns already partition by sprint.
         const applySprint = this.groupBy === "status";
         return cards.filter((c) => {
-            if (project && c.calendarId !== project) {
+            // A saved filter may name a calendar that no longer exists (a
+            // project renamed or archived); that filters nothing.
+            if (
+                project &&
+                this.plugin.cache.calendars.has(project) &&
+                c.calendarId !== project
+            ) {
                 return false;
             }
             if (hideDone && isDoneStatus(cardStatus(c.event))) {

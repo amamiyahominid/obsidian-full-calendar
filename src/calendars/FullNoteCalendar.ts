@@ -22,7 +22,8 @@ const basenameFromEvent = (event: OFCEvent): string => {
     }
 };
 
-const filenameForEvent = (event: OFCEvent) => `${basenameFromEvent(event)}.md`;
+export const filenameForEvent = (event: OFCEvent) =>
+    `${basenameFromEvent(event)}.md`;
 
 const FRONTMATTER_SEPARATOR = "---";
 
@@ -116,7 +117,7 @@ function newFrontmatter(fields: Partial<OFCEvent>): string {
  * endDate, completed, times) are left out, and so is logged time — that is
  * counted from the daily notes' Log.
  */
-function taskFrontmatter(
+export function taskFrontmatter(
     event: Extract<OFCEvent, { type: "single" }>,
     projectNote: string | null
 ): string {
@@ -145,7 +146,7 @@ function taskFrontmatter(
     );
 }
 
-function modifyFrontmatterString(
+export function modifyFrontmatterString(
     page: string,
     modifications: Partial<OFCEvent>
 ): string {

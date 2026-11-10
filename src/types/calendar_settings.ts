@@ -12,6 +12,15 @@ const calendarOptionsSchema = z.discriminatedUnion("type", [
         heading: z.string().default(""),
         todos: z.boolean().default(false),
     }),
+    // Notes found by their `kind` (and, for tasks, the project they link
+    // to) rather than by folder. Never saved in settings: the plugin works
+    // these out from the vault's project notes (docs/format.md).
+    z.object({
+        type: z.literal("notes"),
+        kind: z.enum(["task", "issue"]),
+        project: z.string().optional(),
+        projectPath: z.string().optional(),
+    }),
     z.object({ type: z.literal("ical"), url: z.string().url() }),
     z.object({
         type: z.literal("caldav"),

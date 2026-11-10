@@ -27,6 +27,12 @@ export interface ObsidianInterface {
      */
     getFileByPath(path: string): TFile | null;
 
+    /** Every markdown note in the vault. */
+    getMarkdownFiles(): TFile[];
+
+    /** Create a folder (and any missing parents). */
+    createFolder(path: string): Promise<void>;
+
     /**
      * @param file file to get metadata for.
      * Get the Obsidian-parsed metadata for the given file.
@@ -120,6 +126,14 @@ export class ObsidianIO implements ObsidianInterface {
 
     delete(file: TFile): Promise<void> {
         return this.vault.trash(file, this.systemTrash);
+    }
+
+    getMarkdownFiles(): TFile[] {
+        return this.vault.getMarkdownFiles();
+    }
+
+    async createFolder(path: string): Promise<void> {
+        await this.vault.createFolder(path);
     }
 
     rename(file: TFile, newPath: string): Promise<void> {

@@ -43,6 +43,10 @@ import {
     startOrStop,
 } from "./core/today";
 import { pickTrayTask } from "./ui/taskPicker";
+import NoteKindCalendar, { isSetAside } from "./calendars/NoteKindCalendar";
+
+// The issues calendar's id (see NoteKindCalendar.identifier).
+const ISSUES_SOURCE_ID = "local::kind/issue";
 import { collectTaskCards } from "./core/cards";
 import { DateTime } from "luxon";
 import {
@@ -54,7 +58,6 @@ import {
 } from "./ui/planActions";
 import EventCache, { UpdateViewCallback } from "./core/EventCache";
 import { rollTodosForward } from "./core/todoRollover";
-import { reconcileActuals, scheduleActualsSync } from "./core/actualsSync";
 import ReminderService from "./core/ReminderService";
 import { ObsidianIO } from "./ObsidianAdapter";
 import {
@@ -93,6 +96,17 @@ export default class FullCalendarPlugin extends Plugin {
                       info.directory
                   )
                 : null,
+        notes: (info) =>
+            info.type === "notes"
+                ? new NoteKindCalendar(
+                      new ObsidianIO(this.app),
+                      info.color,
+                      info.kind,
+                      info.project && info.projectPath
+                          ? { name: info.project, path: info.projectPath }
+                          : null
+                  )
+                : null,
         dailynote: (info) =>
             info.type === "dailynote"
                 ? new DailyNoteCalendar(
@@ -127,7 +141,6 @@ export default class FullCalendarPlugin extends Plugin {
     processFrontmatter = toEventInput;
 
     // Keeps task `actual` fields in sync with work-log sessions.
-    private actualsCallback: UpdateViewCallback | null = null;
 
     async rollTodos() {
         try {
@@ -136,7 +149,6 @@ export default class FullCalendarPlugin extends Plugin {
             new Notice(
                 `Full Calendar: rolled ${moved} unfinished TODO(s) forward to today.`
             );
-            await reconcileActuals(this);
         } catch (e) {
             console.error("Full Calendar: TODO rollover failed.", e);
         }
@@ -316,7 +328,7 @@ export default class FullCalendarPlugin extends Plugin {
             await this.saveData(this.settings);
         }
 
-        this.cache.reset(withPlanSource(this.settings.calendarSources));
+        this.resetCache();
 
         // TODO rollover is MANUAL-ONLY (the "Roll unfinished TODOs forward"
         // command). Running it automatically made unrelated edits look like
@@ -330,9 +342,7 @@ export default class FullCalendarPlugin extends Plugin {
                 // itself instead of each project's tasks/.
                 if (this.syncAutoTaskFolder()) {
                     await this.saveData(this.settings);
-                    this.cache.reset(
-                        withPlanSource(this.settings.calendarSources)
-                    );
+                    this.resetCache();
                 }
                 // Auto-register task folders created later: the configured
                 // root, or any folder beneath it (a new project's tasks/
@@ -375,6 +385,7 @@ export default class FullCalendarPlugin extends Plugin {
                     })
                 );
                 this.setupStatusBar();
+                this.rebuildIfProjectsChanged();
                 // Today always has its note: created a little after start-up
                 // and, for an app left open overnight, soon after midnight.
                 // Desktop only — a phone opened in the morning hasn't synced
@@ -391,23 +402,25 @@ export default class FullCalendarPlugin extends Plugin {
                     );
                 }
                 await this.cache.populate();
-                await reconcileActuals(this);
             } catch (e) {
-                console.error("Full Calendar: actuals reconcile failed.", e);
+                console.error("Full Calendar: start-up failed.", e);
             }
         });
 
         this.registerEvent(
             this.app.metadataCache.on("changed", (file) => {
                 this.cache.fileUpdated(file);
+                // A project note appearing, changing colour, or ceasing to
+                // be one changes which calendars exist.
+                this.rebuildIfProjectsChanged();
             })
         );
-
-        // Any cached change (session created/resized/deleted, hand edits…)
-        // debounces a reconcile of task `actual` fields. Writes re-fire this
-        // event, find no diffs, and settle.
-        this.actualsCallback = this.cache.on("update", () =>
-            scheduleActualsSync(this)
+        // Once the vault's metadata is fully read (start-up), the project
+        // notes can all be seen.
+        this.registerEvent(
+            this.app.metadataCache.on("resolved", () =>
+                this.rebuildIfProjectsChanged()
+            )
         );
 
         // Drop the auto source when its folder is deleted (a transient
@@ -436,6 +449,10 @@ export default class FullCalendarPlugin extends Plugin {
                 if (file instanceof TFile) {
                     console.debug("FILE RENAMED", file.path);
                     this.cache.deleteEventsAtPath(oldPath);
+                    // The note is still there under its new path: read it
+                    // again rather than dropping it until the next restart.
+                    this.cache.fileUpdated(file);
+                    this.rebuildIfProjectsChanged();
                 }
             })
         );
@@ -444,6 +461,7 @@ export default class FullCalendarPlugin extends Plugin {
             this.app.vault.on("delete", (file) => {
                 if (file instanceof TFile) {
                     console.debug("FILE DELETED", file.path);
+                    this.rebuildIfProjectsChanged();
                     this.cache.deleteEventsAtPath(file.path);
                 }
             })
@@ -499,7 +517,7 @@ export default class FullCalendarPlugin extends Plugin {
             id: "full-calendar-reset",
             name: "Reset Event Cache",
             callback: () => {
-                this.cache.reset(withPlanSource(this.settings.calendarSources));
+                this.resetCache();
                 this.app.workspace.detachLeavesOfType(FULL_CALENDAR_VIEW_TYPE);
                 this.app.workspace.detachLeavesOfType(
                     FULL_CALENDAR_SIDEBAR_VIEW_TYPE
@@ -513,17 +531,6 @@ export default class FullCalendarPlugin extends Plugin {
             name: "Revalidate remote calendars",
             callback: () => {
                 this.cache.revalidateRemoteCalendars(true);
-            },
-        });
-
-        this.addCommand({
-            id: "full-calendar-recompute-actuals",
-            name: "Recompute task actuals from work-log sessions",
-            callback: async () => {
-                const written = await reconcileActuals(this);
-                new Notice(
-                    `Full Calendar: updated \`actual\` on ${written} task note(s).`
-                );
             },
         });
 
@@ -691,10 +698,6 @@ export default class FullCalendarPlugin extends Plugin {
     }
 
     onunload() {
-        if (this.actualsCallback) {
-            this.cache.off("update", this.actualsCallback);
-            this.actualsCallback = null;
-        }
         if (this.statusCallback) {
             this.cache.off("update", this.statusCallback);
             this.statusCallback = null;
@@ -722,7 +725,7 @@ export default class FullCalendarPlugin extends Plugin {
     async saveSettings() {
         new Notice("Resetting the event cache with new settings...");
         await this.saveData(this.settings);
-        this.cache.reset(withPlanSource(this.settings.calendarSources));
+        this.resetCache();
         await this.cache.populate();
         this.cache.resync();
     }
@@ -831,8 +834,101 @@ export default class FullCalendarPlugin extends Plugin {
      * task board/tray and on the kanban's Issue axis.
      */
     issuesSourceId(): string | null {
-        const issues = this.settings.issuesFolder?.trim();
-        return issues ? `local::${issues}` : null;
+        return ISSUES_SOURCE_ID;
+    }
+
+    /**
+     * The calendars that come from the vault itself rather than from
+     * settings: one per project note (`kind: project`) for that project's
+     * tasks, in the project's own colour, and one for the issues. Projects
+     * are found wherever they are; archived and template notes are skipped.
+     */
+    private derivedSources(): CalendarInfo[] {
+        const taken = this.settings.calendarSources.map((s) => s.color);
+        const projects: CalendarInfo[] = [];
+        const files = this.app.vault
+            .getMarkdownFiles()
+            .filter((f) => !isSetAside(f.path))
+            .sort((a, b) => a.path.localeCompare(b.path));
+        for (const file of files) {
+            const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+            if (fm?.kind !== "project") {
+                continue;
+            }
+            const color =
+                typeof fm.color === "string" && fm.color
+                    ? fm.color
+                    : nextSourceColor(taken);
+            taken.push(color);
+            projects.push({
+                type: "notes",
+                kind: "task",
+                project: file.basename,
+                projectPath: file.path,
+                color,
+            });
+        }
+        const issuesFolder = this.settings.issuesFolder?.trim();
+        const savedIssues = this.settings.calendarSources.find(
+            (s) => s.type === "local" && s.directory === issuesFolder
+        );
+        return [
+            ...projects,
+            {
+                type: "notes",
+                kind: "issue",
+                color: savedIssues?.color ?? "#d06f2a",
+            },
+        ];
+    }
+
+    /**
+     * Every calendar the cache should hold: the derived ones first (so a
+     * project is what the create dialog offers by default), then the saved
+     * ones that aren't note folders the derived ones replace — task folders
+     * and the issues folder are no longer read by path — plus Plan.
+     */
+    private effectiveSources(): CalendarInfo[] {
+        const issuesFolder = this.settings.issuesFolder?.trim();
+        const saved = this.settings.calendarSources.filter(
+            (s) =>
+                !(
+                    s.type === "local" &&
+                    (s.directory.endsWith("/tasks") ||
+                        s.directory === issuesFolder)
+                )
+        );
+        return withPlanSource([...this.derivedSources(), ...saved]);
+    }
+
+    // What the derived calendars were built from, to tell when the vault's
+    // projects have changed (a project added, renamed, recoloured, archived).
+    private derivedSignature = "";
+
+    private resetCache() {
+        this.derivedSignature = JSON.stringify(this.derivedSources());
+        this.cache.reset(this.effectiveSources());
+    }
+
+    private rebuildTimer: number | null = null;
+
+    /** Rebuild the calendars if the set of projects is no longer what the
+     * cache was built from. Cheap to call; debounced. */
+    private rebuildIfProjectsChanged() {
+        if (this.rebuildTimer !== null) {
+            window.clearTimeout(this.rebuildTimer);
+        }
+        this.rebuildTimer = window.setTimeout(async () => {
+            this.rebuildTimer = null;
+            if (
+                JSON.stringify(this.derivedSources()) === this.derivedSignature
+            ) {
+                return;
+            }
+            this.resetCache();
+            await this.cache.populate();
+            this.cache.resync();
+        }, 500);
     }
 
     /**
@@ -843,26 +939,9 @@ export default class FullCalendarPlugin extends Plugin {
      * returns whether anything changed (caller persists).
      */
     syncAutoTaskFolder(): boolean {
-        let changed = false;
-        for (const dir of this.autoFolderCandidates()) {
-            if (this.settings.dismissedAutoFolders?.includes(dir)) {
-                continue;
-            }
-            const alreadyRegistered = this.settings.calendarSources.some(
-                (s) => s.type === "local" && s.directory === dir
-            );
-            if (alreadyRegistered) {
-                continue;
-            }
-            this.settings.calendarSources.push({
-                type: "local",
-                directory: dir,
-                color: nextSourceColor(
-                    this.settings.calendarSources.map((s) => s.color)
-                ),
-            });
-            changed = true;
-        }
-        return changed;
+        // Retired: task folders and the issues folder are no longer
+        // registered by path. Tasks and issues are found by `kind`
+        // (see derivedSources); nothing is added to the saved sources.
+        return false;
     }
 }
