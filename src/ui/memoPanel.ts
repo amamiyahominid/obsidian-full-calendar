@@ -39,7 +39,7 @@ export function renderMemoPanel(
     const tools = head.createDiv({ cls: "ofc-tray-tools" });
     if (opts.onPopOut) {
         const popBtn = tools.createEl("button", {
-            cls: "ofc-tray-card-btn ofc-tray-card-btn-quiet",
+            cls: "ofc-row-btn ofc-row-btn-quiet",
         });
         setIcon(popBtn, "arrow-up-right");
         popBtn.setAttr("aria-label", "別のペインに出す");
@@ -50,7 +50,7 @@ export function renderMemoPanel(
     }
     if (opts.onPopIn) {
         const backBtn = tools.createEl("button", {
-            cls: "ofc-tray-card-btn ofc-tray-card-btn-quiet",
+            cls: "ofc-row-btn ofc-row-btn-quiet",
         });
         setIcon(backBtn, "arrow-down-left");
         backBtn.setAttr("aria-label", "カレンダーに戻す");
@@ -60,7 +60,7 @@ export function renderMemoPanel(
         };
     }
     const openBtn = tools.createEl("button", {
-        cls: "ofc-tray-card-btn ofc-tray-card-btn-quiet",
+        cls: "ofc-row-btn ofc-row-btn-quiet",
     });
     setIcon(openBtn, "external-link");
     openBtn.setAttr("aria-label", "daily を開く");

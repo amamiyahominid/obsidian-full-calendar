@@ -328,12 +328,6 @@
     background-color: transparent;
 }
 
-.ofc-kanban-card-status {
-    font-size: var(--font-ui-smaller);
-    border-radius: var(--radius-s);
-    padding: 0 var(--size-2-2);
-}
-
 .ofc-kanban-cards {
     display: flex;
     flex-direction: column;
@@ -343,60 +337,8 @@
     min-height: 3em; /* keep an empty column droppable */
 }
 
-.ofc-kanban-card {
-    background-color: var(--background-primary);
-    border: 1px solid var(--background-modifier-border);
-    border-left-width: 5px;
-    border-radius: var(--radius-s);
-    padding: var(--size-2-3) var(--size-4-2);
-    cursor: grab;
-}
-
-.ofc-kanban-card:hover {
-    background-color: var(--background-modifier-hover);
-}
-
 .ofc-kanban-card.ofc-kanban-dragging {
     opacity: 0.5;
-}
-
-.ofc-kanban-card-title {
-    font-size: var(--font-ui-small);
-}
-
-.ofc-kanban-card-title.ofc-kanban-card-done {
-    text-decoration: line-through;
-    color: var(--text-muted);
-}
-
-.ofc-kanban-card-meta {
-    display: flex;
-    align-items: center;
-    gap: var(--size-2-2);
-    flex-wrap: wrap;
-    margin-top: var(--size-2-1);
-}
-
-.ofc-kanban-card-date {
-    font-size: var(--font-ui-smaller);
-    color: var(--text-muted);
-}
-
-.ofc-kanban-card-sprint {
-    font-size: var(--font-ui-smaller);
-    color: var(--text-muted);
-    background-color: var(--background-modifier-border);
-    border-radius: var(--radius-s);
-    padding: 0 var(--size-2-2);
-}
-
-.ofc-kanban-card-sprint-current {
-    background-color: var(--interactive-accent);
-    color: var(--text-on-accent);
-}
-
-.ofc-kanban-card-date.ofc-kanban-card-overdue {
-    color: var(--text-error);
 }
 
 /* ---- Event modal ---- */
@@ -445,25 +387,6 @@ button.ofc-modal-danger:not(.clickable-icon) {
 button.ofc-modal-danger:not(.clickable-icon):hover {
     background-color: var(--background-modifier-error);
     color: var(--text-on-accent);
-}
-
-/* ---- Project chip (kanban cards, issue cards, tray) ---- */
-
-.ofc-project-chip {
-    display: inline-block;
-    max-width: 14em;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    vertical-align: bottom;
-    font-size: var(--font-ui-smaller);
-    color: var(--text-muted);
-    background-color: var(--background-modifier-border);
-    border-radius: var(--radius-s);
-    padding: 0 var(--size-2-2);
-    /* Halo in the page background: separates the chip from the tray's
-       status-filled cards without needing to know their colour. */
-    box-shadow: 0 0 0 1px var(--background-primary);
 }
 
 .ofc-kanban-empty {
@@ -516,113 +439,9 @@ button.ofc-modal-danger:not(.clickable-icon):hover {
     margin: var(--size-2-2) 0 var(--size-4-2);
 }
 
-.ofc-tray-card {
-    padding: var(--size-2-2) var(--size-2-3);
-    margin-bottom: var(--size-2-3);
-    border-radius: var(--radius-s);
-    background-color: var(--background-secondary);
-    /* Colors come inline from the card's calendar source + status, mirroring
-	   how the calendar paints events; these are just fallbacks. */
-    border: 1px solid var(--interactive-accent);
-    border-left-width: 3px;
-    cursor: grab;
-}
-
-.ofc-tray-card:active {
-    cursor: grabbing;
-}
-
-.ofc-tray-card-title {
-    font-size: var(--font-ui-small);
-}
-
-.ofc-tray-card-meta {
-    font-size: var(--font-ui-smaller);
-    color: inherit;
-    margin-top: var(--size-2-1);
-}
-
-/* Dim the text, not the chip: opacity on the container would sink the chip
-   with it, and the chip carries its own colour. */
-.ofc-tray-card-meta > :not(.ofc-project-chip) {
-    opacity: 0.8;
-}
-
 .ofc-tray-empty {
     font-size: var(--font-ui-small);
     color: var(--text-faint);
-}
-
-/* ---- Tray start/stop sessions ---- */
-
-.ofc-tray-card {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--size-2-2);
-}
-
-.ofc-tray-card-body {
-    /* Take all remaining width so short titles hug the left edge instead of
-	   floating to the middle of the space-between row. */
-    flex: 1;
-    min-width: 0;
-}
-
-.ofc-tray-card-btn {
-    flex-shrink: 0;
-    width: 26px;
-    height: 26px;
-    padding: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    /* Soft tint of the card's own text color, so the button blends with
-       whatever status color the card is filled with. */
-    background-color: color-mix(in srgb, currentColor 12%, transparent);
-    box-shadow: none;
-    border: none;
-    border-radius: var(--radius-s);
-    color: inherit;
-    opacity: 0.85;
-    cursor: pointer;
-    transition: background-color 0.15s ease, opacity 0.15s ease;
-}
-
-.ofc-tray-card-btn:hover {
-    opacity: 1;
-    background-color: color-mix(in srgb, currentColor 22%, transparent);
-}
-
-/* While running, the stop button fills with the same green as the card's
-   running edge — one "recording" signal. */
-.ofc-tray-card-running .ofc-tray-card-btn {
-    background-color: var(--color-green);
-    color: white;
-    opacity: 1;
-}
-
-.ofc-tray-card-running .ofc-tray-card-btn:hover {
-    filter: brightness(1.1);
-}
-
-.ofc-tray-card-btn .svg-icon {
-    width: 14px;
-    height: 14px;
-}
-
-/* The green edge marks the running task; !important beats the inline
-   source-color border the card gets from JS. */
-.ofc-tray-card-running {
-    border-left-color: var(--color-green) !important;
-}
-
-.ofc-tray-card-running .ofc-tray-card-meta {
-    font-weight: 600;
-}
-
-.ofc-tray-card-running .ofc-tray-card-meta > :not(.ofc-project-chip) {
-    opacity: 1;
 }
 
 .ofc-tray-warning {
@@ -636,17 +455,6 @@ button.ofc-modal-danger:not(.clickable-icon):hover {
     border-radius: var(--radius-s);
     padding: var(--size-2-2) var(--size-2-3);
     margin-bottom: var(--size-2-3);
-}
-
-.ofc-kanban-card-actual {
-    font-size: var(--font-ui-smaller);
-    color: var(--text-muted);
-}
-
-.ofc-tray-card-check {
-    flex-shrink: 0;
-    margin: 0;
-    cursor: pointer;
 }
 
 /* ---- Tray 2.0: manual order, dividers, TODO section ---- */
@@ -740,62 +548,11 @@ body.ofc-tray-reorder-active .ofc-tray-group-body:empty {
     border-radius: var(--radius-s);
 }
 
-/* Long-press lift needs the OS text-selection/callout out of the way. */
-.ofc-tray-card {
-    -webkit-touch-callout: none;
-    -webkit-user-select: none;
-    user-select: none;
-}
-
-.ofc-tray-card-due-urgent {
-    color: var(--color-red);
-    font-weight: 600;
-}
-
 .ofc-tray-section {
     font-size: var(--font-ui-smaller);
     font-weight: 600;
     color: var(--text-muted);
     margin: var(--size-4-3) 0 var(--size-4-2);
-}
-
-.ofc-tray-todo {
-    display: flex;
-    align-items: center;
-    gap: var(--size-2-2);
-    padding: var(--size-2-1) var(--size-2-2);
-    margin-bottom: var(--size-2-1);
-    border-radius: var(--radius-s);
-    background-color: var(--background-secondary);
-    font-size: var(--font-ui-small);
-    cursor: grab;
-}
-
-.ofc-tray-todo:active {
-    cursor: grabbing;
-}
-
-.ofc-tray-todo-check {
-    flex-shrink: 0;
-    margin: 0;
-    cursor: pointer;
-}
-
-.ofc-tray-todo-body {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-/* The day a forgotten TODO came from. */
-.ofc-tray-todo-date {
-    flex-shrink: 0;
-    font-size: var(--font-ui-smaller);
-    font-weight: 600;
-    color: var(--color-red);
-    opacity: 0.85;
 }
 
 /* ---- Mobile tray: on-demand vertical task list ---- */
@@ -839,24 +596,6 @@ body.ofc-tray-reorder-active .ofc-tray-group-body:empty {
     display: none;
 }
 
-/* Done tasks stay listed (glanceable retro, undo-able mis-taps) but recede. */
-.ofc-tray-card-done {
-    opacity: 0.65;
-}
-
-.ofc-tray-card-done .ofc-tray-card-title {
-    text-decoration: line-through;
-}
-
-/* Same treatment for checked TODO lines. */
-.ofc-tray-todo-done {
-    opacity: 0.65;
-}
-
-.ofc-tray-todo-done .ofc-tray-todo-body {
-    text-decoration: line-through;
-}
-
 /* ---- Tray: 今日 / Memo / 今週 ---- */
 
 /* The section a week card is dropped on to join today's list. The padding
@@ -894,49 +633,6 @@ body.ofc-tray-reorder-active .ofc-tray-group-body:empty {
     display: flex;
     align-items: center;
     justify-content: space-between;
-}
-
-/* Today's rows: outlined on the page surface, like the cards beside them,
-   instead of a grey slab — and two lines of text before truncating, since
-   these are the lines being read most. */
-.ofc-tray-today .ofc-tray-todo {
-    align-items: flex-start;
-    padding: var(--size-2-2) var(--size-2-3);
-    margin-bottom: var(--size-2-2);
-    background-color: var(--background-primary);
-    border: 1px solid var(--background-modifier-border);
-}
-
-.ofc-tray-today .ofc-tray-todo-check {
-    margin-top: 0.2em;
-}
-
-.ofc-tray-today .ofc-tray-todo-body {
-    white-space: normal;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-}
-
-/* The secondary button on a card (add to today / take off today): no fill,
-   so the play button stays the one obvious action. */
-.ofc-tray-card-btn.ofc-tray-card-btn-quiet:not(.clickable-icon) {
-    background-color: transparent;
-    box-shadow: none;
-    border: none;
-    color: inherit;
-    opacity: 0.55;
-}
-
-.ofc-tray-card-btn.ofc-tray-card-btn-quiet:not(.clickable-icon):hover {
-    background-color: var(--background-modifier-hover);
-    opacity: 1;
-}
-
-/* Today's cards aren't reordered by drag (the note's order is the order);
-   they can still be dragged onto the calendar to stamp a session. */
-.ofc-tray-card-today.ofc-tray-card-done {
-    opacity: 0.65;
 }
 
 .ofc-tray-memo {
@@ -996,37 +692,48 @@ body.ofc-tray-reorder-active .ofc-tray-group-body:empty {
    else. Status is carried by the tray's group headings and the kanban
    columns, so nothing is filled with a status colour any more. */
 
-/* Tray rows: today's TODO lines, today's task cards and the week's cards
-   are one kind of row — page surface, hairline frame, and a bar on the left
-   in the project's colour (neutral for lines that belong to no project). */
-.ofc-tray-card,
-.ofc-tray-today .ofc-tray-todo {
+/* The row (ui/row.ts): one look for a thing to do on every surface —
+   today's list, the week's groups, a kanban column. Page surface, hairline
+   frame, and a bar on the left in the project's colour (neutral for lines
+   that belong to no project). The surface's own class (.ofc-tray-card,
+   .ofc-kanban-card, .ofc-tray-todo) rides along for drag selectors only;
+   every rule about how a row LOOKS lives here. */
+.ofc-row {
     --ofc-row-color: var(--background-modifier-border-hover);
+    display: flex;
     align-items: flex-start;
+    justify-content: flex-start;
     gap: var(--size-4-2);
     padding: var(--size-2-3) var(--size-4-2);
-    margin-bottom: var(--size-2-2);
+    margin: 0 0 var(--size-2-2);
     background-color: var(--background-primary);
     color: var(--text-normal);
     border: 1px solid var(--background-modifier-border);
     border-left: 3px solid var(--ofc-row-color);
     border-radius: 2px;
+    box-shadow: none;
     font-size: var(--font-ui-small);
+    opacity: 1;
 }
 
-.ofc-tray-card:hover,
-.ofc-tray-today .ofc-tray-todo:hover {
+.ofc-row:hover {
     border-top-color: var(--background-modifier-border-hover);
     border-right-color: var(--background-modifier-border-hover);
     border-bottom-color: var(--background-modifier-border-hover);
 }
 
-.ofc-tray-card-check,
-.ofc-tray-today .ofc-tray-todo-check {
-    margin-top: 0.2em;
+.ofc-row-check {
+    flex-shrink: 0;
+    margin: 0.2em 0 0;
+    cursor: pointer;
 }
 
-.ofc-tray-card-title {
+.ofc-row-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.ofc-row-title {
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
@@ -1034,54 +741,113 @@ body.ofc-tray-reorder-active .ofc-tray-group-body:empty {
     overflow-wrap: anywhere;
 }
 
-.ofc-tray-card-meta {
+.ofc-row-meta {
+    margin-top: var(--size-2-1);
+    font-size: var(--font-ui-smaller);
     color: var(--text-muted);
+    overflow-wrap: anywhere;
 }
 
-.ofc-tray-card-meta > * {
-    opacity: 1;
+.ofc-row-due-urgent,
+.ofc-row-stale {
+    color: var(--color-red);
+    font-weight: 600;
 }
 
-/* Buttons sit on the page surface now, not on a status fill. */
-.ofc-tray-card-btn:not(.clickable-icon) {
+.ofc-row-current {
+    color: var(--text-accent);
+}
+
+/* Done rows stay listed (glanceable retro, undo-able mis-taps) but recede. */
+.ofc-row-done {
+    opacity: 0.6;
+}
+
+.ofc-row-done .ofc-row-title {
+    text-decoration: line-through;
+}
+
+/* The running task: a green edge, bold small print, a filled stop button —
+   one "recording" signal. !important beats the inline project colour. */
+.ofc-row-running {
+    border-left-color: var(--color-green) !important;
+}
+
+.ofc-row-running .ofc-row-meta {
+    font-weight: 600;
+    color: var(--text-normal);
+}
+
+.ofc-row-btn:not(.clickable-icon) {
+    flex-shrink: 0;
     width: 24px;
     height: 24px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     background-color: transparent;
+    box-shadow: none;
     border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
     color: var(--text-muted);
-    opacity: 1;
+    cursor: pointer;
 }
 
-.ofc-tray-card-btn:not(.clickable-icon):hover {
+.ofc-row-btn:not(.clickable-icon):hover {
     background-color: var(--background-modifier-hover);
     color: var(--text-normal);
 }
 
-.ofc-tray-card-btn.ofc-tray-card-btn-quiet:not(.clickable-icon) {
-    border: none;
-    color: var(--text-faint);
-    opacity: 1;
+.ofc-row-btn .svg-icon {
+    width: 14px;
+    height: 14px;
 }
 
-.ofc-tray-card-btn.ofc-tray-card-btn-quiet:not(.clickable-icon):hover {
+.ofc-row-btn.ofc-row-btn-quiet:not(.clickable-icon) {
+    border: none;
+    color: var(--text-faint);
+}
+
+.ofc-row-btn.ofc-row-btn-quiet:not(.clickable-icon):hover {
     color: var(--text-normal);
 }
 
-.ofc-tray-card-running .ofc-tray-card-btn:not(.clickable-icon) {
+.ofc-row-running .ofc-row-btn:not(.ofc-row-btn-quiet):not(.clickable-icon) {
     background-color: var(--color-green);
     border-color: var(--color-green);
     color: white;
 }
 
-/* Taking a task off today is rare: the × shows on hover, and always on
+/* Rare actions (taking a task off today) show on hover, and always on
    touch screens where there is no hover. */
-.ofc-tray-card-btn-off {
+.ofc-row-btn-reveal {
     visibility: hidden;
 }
 
-.ofc-tray-card:hover .ofc-tray-card-btn-off,
-.is-mobile .ofc-tray-card-btn-off {
+.ofc-row:hover .ofc-row-btn-reveal,
+.is-mobile .ofc-row-btn-reveal {
     visibility: visible;
+}
+
+/* Long-press lift needs the OS text-selection/callout out of the way. */
+.ofc-row {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+/* What the surfaces add: only how a row is picked up. */
+.ofc-tray-card,
+.ofc-tray-todo,
+.ofc-kanban-card {
+    cursor: grab;
+}
+
+.ofc-tray-card:active,
+.ofc-tray-todo:active,
+.ofc-kanban-card:active {
+    cursor: grabbing;
 }
 
 .ofc-tray-memo .ofc-tray-section,
@@ -1253,4 +1019,10 @@ textarea.ofc-tray-memo-editor:focus {
     height: 100%;
     border: none;
     padding: 0;
+}
+
+/* A kanban column spaces its cards with `gap`; the row's own margin would
+   double it. */
+.ofc-kanban-cards .ofc-row {
+    margin: 0;
 }

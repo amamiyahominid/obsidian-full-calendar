@@ -1,14 +1,10 @@
+import { dueMeta, metaPart, renderRow, timeLabel } from "./row";
 import { ItemView, Menu, Notice, setIcon, WorkspaceLeaf } from "obsidian";
 import { DateTime } from "luxon";
 import FullCalendarPlugin from "../main";
 import { OFCEvent, PLUGIN_SLUG } from "../types";
 import { UpdateViewCallback } from "../core/EventCache";
-import {
-    contrastTextColor,
-    getStatusColor,
-    isDoneStatus,
-    workflowStages,
-} from "./colors";
+import { getStatusColor, isDoneStatus, workflowStages } from "./colors";
 import { openFileForEvent } from "./actions";
 import { actualMinutesByLinktext, linktextForEvent } from "../core/worklog";
 import { launchCreateModal, launchEditModal } from "./event_modal";
@@ -209,25 +205,6 @@ export const projectColor = (
     }
     return null;
 };
-
-/**
- * The project chip. One renderer for all three surfaces — task cards, issue
- * cards, and the tray — so a project looks the same wherever it appears.
- * The halo is drawn in the page background so the chip stays legible on the
- * tray's status-filled cards as well as on the board's plain ones.
- */
-export function renderProjectChip(
-    parent: HTMLElement,
-    name: string,
-    color: string | null | undefined
-): HTMLElement {
-    const chip = parent.createSpan({ cls: "ofc-project-chip", text: name });
-    if (color) {
-        chip.style.backgroundColor = color;
-        chip.style.color = contrastTextColor(color);
-    }
-    return chip;
-}
 
 export class KanbanView extends ItemView {
     plugin: FullCalendarPlugin;
@@ -743,96 +720,54 @@ export class KanbanView extends ItemView {
 
     private renderCard(parent: HTMLElement, card: Card, column: Column) {
         const { id, event } = card;
-        const cardEl = parent.createDiv({ cls: "ofc-kanban-card" });
-        cardEl.style.borderLeftColor =
-            card.sourceColor || "var(--interactive-accent)";
-        cardEl.setAttr("draggable", "true");
-
         const done = cardDone(event);
-        const titleEl = cardEl.createDiv({
-            cls: "ofc-kanban-card-title",
-            text: event.title,
-        });
-        if (done) {
-            titleEl.addClass("ofc-kanban-card-done");
-        }
-
-        const metaEl = cardEl.createDiv({ cls: "ofc-kanban-card-meta" });
-        // Tasks' own `date` is retired (it never meant anything once tasks
-        // left the calendar); the date worth showing is the deadline.
-        const due = dueBadge(event.due);
-        if (due && !done) {
-            const dueEl = metaEl.createSpan({
-                cls: "ofc-kanban-card-date",
-                text: due.text,
-            });
-            if (due.urgent) {
-                dueEl.addClass("ofc-kanban-card-overdue");
-            }
-        }
-
-        if (this.boardScope === "projects" && this.groupBy === "sprint") {
-            // The column already says which sprint this is; the useful extra
-            // context here is the workflow stage (and, in carry-over, which
-            // week the card slipped from).
-            if (column.showWeekBadge && event.sprint) {
-                metaEl.createSpan({
-                    cls: "ofc-kanban-card-sprint",
-                    text: event.sprint,
-                });
-            }
-            const status = cardStatus(event);
-            const chip = metaEl.createSpan({
-                cls: "ofc-kanban-card-status",
-                text: status,
-            });
-            const color = getStatusColor(status);
-            if (color) {
-                chip.style.backgroundColor = color;
-                chip.style.color = contrastTextColor(color);
-            }
-        } else if (event.sprint) {
-            const sprintEl = metaEl.createSpan({
-                cls: "ofc-kanban-card-sprint",
-                text: event.sprint,
-            });
-            if (event.sprint === weekOf(0)) {
-                sprintEl.addClass("ofc-kanban-card-sprint-current");
-            }
-        }
-
-        // Which project the card belongs to. Issues carry it in frontmatter
-        // and can name more than one; tasks take it from the source folder
-        // they live in, so the chip is tinted with that source's colour —
-        // the same colour as the card's left stripe, now with a name on it.
-        if (this.boardScope === "issue") {
-            for (const name of cardProjects(event)) {
-                renderProjectChip(
-                    metaEl,
-                    name,
-                    projectColor(this.plugin, name)
-                );
-            }
-        } else {
-            renderProjectChip(
-                metaEl,
-                projectLabel(card.calendarId),
-                card.sourceColor
-            );
-        }
-
-        // Logged time from work-log sessions vs. the task's estimate.
         const linktext = linktextForEvent(this.plugin, id);
-        const actual = linktext ? this.actuals.get(linktext) ?? 0 : 0;
-        const estimate = event.estimate ?? 0;
-        if (actual > 0 || estimate > 0) {
-            metaEl.createSpan({
-                cls: "ofc-kanban-card-actual",
-                text: `⏱ ${formatHours(actual)}${
-                    estimate > 0 ? ` / ${formatHours(estimate)}` : ""
-                }`,
-            });
-        }
+        const issue = this.boardScope === "issue";
+        // The same row as the tray's. What differs is only the small print:
+        // a column can't say everything the tray's headings do, so the card
+        // names its project, and whichever of status / sprint the columns
+        // aren't already grouped by.
+        const { el: cardEl } = renderRow(parent, {
+            cls: ["ofc-kanban-card"],
+            title: event.title,
+            // An issue can sit on several projects; its bar takes the first.
+            color: issue
+                ? projectColor(this.plugin, cardProjects(event)[0] ?? "")
+                : card.sourceColor,
+            done,
+            meta: (metaEl) => {
+                const projects = issue
+                    ? cardProjects(event)
+                    : [projectLabel(card.calendarId)];
+                if (projects.length > 0) {
+                    metaPart(metaEl, projects.join("、"));
+                }
+                if (!issue && this.groupBy === "sprint") {
+                    metaPart(metaEl, cardStatus(event));
+                    // In carry-over: which week the card slipped from.
+                    if (column.showWeekBadge && event.sprint) {
+                        metaPart(metaEl, event.sprint);
+                    }
+                } else if (event.sprint) {
+                    metaPart(metaEl, event.sprint).toggleClass(
+                        "ofc-row-current",
+                        event.sprint === weekOf(0)
+                    );
+                }
+                // Logged time from work-log sessions vs. the estimate.
+                const time = timeLabel(
+                    linktext ? this.actuals.get(linktext) ?? 0 : 0,
+                    event.estimate ?? 0
+                );
+                if (time) {
+                    metaPart(metaEl, time);
+                }
+                // Tasks' own `date` is retired; the date worth showing is
+                // the deadline.
+                dueMeta(metaEl, done ? null : dueBadge(event.due));
+            },
+        });
+        cardEl.setAttr("draggable", "true");
 
         this.registerDomEvent(cardEl, "dragstart", (ev) => {
             ev.dataTransfer?.setData("text/plain", id);
