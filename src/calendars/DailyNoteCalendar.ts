@@ -556,7 +556,9 @@ export default class DailyNoteCalendar extends EditableCalendar {
 
     async deleteEvent(loc: EventPathLocation): Promise<void> {
         const { file, lineNumber } = this.getConcreteLocation(loc);
-        this.app.rewrite(file, (contents) => {
+        // Awaited: the caller's next step may be another edit of this same
+        // note, which must see this one already written.
+        await this.app.rewrite(file, (contents) => {
             let lines = contents.split("\n");
             lines.splice(lineNumber, 1);
             return lines.join("\n");

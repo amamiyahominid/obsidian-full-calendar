@@ -2,7 +2,10 @@ import { Notice, TFile } from "obsidian";
 import equal from "deep-equal";
 
 import { Calendar, EventResponse } from "../calendars/Calendar";
-import { EditableCalendar } from "../calendars/EditableCalendar";
+import {
+    EditableCalendar,
+    EditableEventResponse,
+} from "../calendars/EditableCalendar";
 import EventStore, { StoredEvent, EventPathLocation } from "./EventStore";
 import { CalendarInfo, OFCEvent, validateEvent } from "../types";
 import RemoteCalendar from "../calendars/RemoteCalendar";
@@ -575,6 +578,52 @@ export default class EventCache {
      * @param file File which has been updated
      * @returns nothing
      */
+    /**
+     * Same events, possibly on different lines. A line added or removed
+     * elsewhere in a note (a TODO above the work log, say) shifts every line
+     * below it without changing any event there — and the store would go on
+     * pointing at the old line numbers, so the next edit of such an event
+     * had to guess its line by title, and failed whenever two lines shared
+     * one (two sessions of the same task on one day).
+     *
+     * Pairs old and new in line order and moves each stored event to where
+     * it now is, keeping its ID so views hold nothing stale. Returns false
+     * when the pairing isn't one-to-one in line order (equal events swapped
+     * places): the caller then rebuilds this calendar's events instead.
+     */
+    private relocateUnchangedEvents(
+        calendar: EditableCalendar,
+        oldEvents: StoredEvent[],
+        newEvents: EditableEventResponse[]
+    ): boolean {
+        const line = (l: { lineNumber?: number | undefined } | null) =>
+            l?.lineNumber ?? -1;
+        const olds = [...oldEvents].sort(
+            (a, b) => line(a.location) - line(b.location)
+        );
+        const news = [...newEvents].sort((a, b) => line(a[1]) - line(b[1]));
+        if (olds.length !== news.length) {
+            return false;
+        }
+        for (let i = 0; i < olds.length; i++) {
+            if (
+                !equal(validateEvent(olds[i].event), validateEvent(news[i][0]))
+            ) {
+                return false;
+            }
+        }
+        for (let i = 0; i < olds.length; i++) {
+            const location = news[i][1];
+            if (!location || line(location) === line(olds[i].location)) {
+                continue;
+            }
+            const { id, event } = olds[i];
+            this.store.delete(id);
+            this.store.add({ calendar, location, id, event });
+        }
+        return true;
+    }
+
     async fileUpdated(file: TFile): Promise<void> {
         console.debug("fileUpdated() called for file", file.path);
 
@@ -618,7 +667,10 @@ export default class EventCache {
             // swallow the updateViews() for a calendar that DID change,
             // leaving views holding stale event IDs ("Event ID N not present
             // in event store" on the next drag).
-            if (!eventsHaveChanged) {
+            if (
+                !eventsHaveChanged &&
+                this.relocateUnchangedEvents(calendar, oldEvents, newEvents)
+            ) {
                 console.debug(
                     "events have not changed, do not update store or view."
                 );

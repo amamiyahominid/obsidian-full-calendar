@@ -596,6 +596,33 @@ describe("editable calendars", () => {
             cache.on("update", callbackMock);
         });
 
+        it("follows an unchanged event to its new line, keeping its ID", async () => {
+            const calendar = getCalendar(cache, "test");
+            const id = cache.getAllEvents()[0].events[0].id;
+            const before = cache.getInfoForEditableEvent(id).location;
+            const moved = (before?.lineNumber ?? 0) + 3;
+
+            calendar.getEventsInFile.mockReturnValue(
+                Promise.resolve([
+                    [oldEvent[0], { ...oldEvent[1], lineNumber: moved }],
+                ])
+            );
+            await cache.fileUpdated(oldEvent[1].file as TFile);
+
+            // Nothing a view shows has changed, so no update goes out…
+            expect(callbackMock).not.toBeCalled();
+            assertCacheContentCounts(cache, {
+                calendars: 1,
+                files: 1,
+                events: 1,
+            });
+            // …but the next edit of this event must aim at the new line.
+            expect(cache.getAllEvents()[0].events[0].id).toBe(id);
+            expect(cache.getInfoForEditableEvent(id).location?.lineNumber).toBe(
+                moved
+            );
+        });
+
         it.each([
             {
                 test: "New event in a new file",
