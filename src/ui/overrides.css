@@ -3,12 +3,15 @@
 }
 .fc {
     height: 100%;
+    /* Outlined, not filled: a grey `--interactive-normal` fill on every
+       button (prev/next/today and the view switcher) reads as disabled,
+       and only the selected view should carry colour. */
     --fc-button-text-color: var(--text-normal);
-    --fc-button-bg-color: var(--interactive-normal);
-    --fc-button-border-color: var(--interactive-normal);
+    --fc-button-bg-color: transparent;
+    --fc-button-border-color: var(--background-modifier-border);
 
-    --fc-button-hover-bg-color: var(--interactive-hover);
-    --fc-button-hover-border-color: var(--interactive-hover);
+    --fc-button-hover-bg-color: var(--background-modifier-hover);
+    --fc-button-hover-border-color: var(--background-modifier-border);
 
     --fc-button-active-border-color: var(--interactive-accent);
     --fc-button-active-bg-color: var(--interactive-accent);
@@ -46,9 +49,46 @@
     color: var(--text-on-accent) !important;
 }
 .fc .fc-button {
-    border: 0px solid transparent !important;
+    /* The fill is transparent now, so the outline is what makes these read
+       as controls. FullCalendar's own var drives the colour. */
+    border: 1px solid var(--fc-button-border-color) !important;
     line-height: 1 !important;
     padding: var(--size-4-1) var(--size-4-3) !important;
+}
+
+/* Obsidian's own `button:not(.clickable-icon)` sets the grey
+   `--interactive-normal` fill at specificity (0,1,1), which outranks
+   FullCalendar's `.fc-button-primary` (0,1,0) — so setting
+   `--fc-button-bg-color` alone never reached the screen. Repeat the same
+   `:not(.clickable-icon)` here to win on specificity rather than on
+   stylesheet order. Every button override below does the same. */
+.fc .fc-button:not(.clickable-icon) {
+    background-color: var(--fc-button-bg-color);
+    color: var(--fc-button-text-color);
+    box-shadow: none;
+}
+
+.fc .fc-button:not(.clickable-icon):hover {
+    background-color: var(--fc-button-hover-bg-color);
+    box-shadow: none;
+}
+
+.fc .fc-button.fc-button-active:not(.clickable-icon),
+.fc .fc-button.fc-button-active:not(.clickable-icon):hover {
+    background-color: var(--fc-button-active-bg-color);
+    color: var(--text-on-accent);
+}
+
+/* Collapse the doubled edge between grouped buttons (the view switcher). */
+.fc .fc-button-group .fc-button + .fc-button {
+    margin-left: -1px !important;
+}
+
+/* The selected view sits on top so its accent edge isn't clipped by the
+   neighbour's outline. */
+.fc .fc-button-group .fc-button-active {
+    position: relative;
+    z-index: 1;
 }
 
 /* Running work-log session (no endTime yet): translucent while the clock
@@ -141,6 +181,20 @@
     text-overflow: ellipsis;
 }
 
+/* Match the toggles and the calendar's buttons: outlined rather than filled
+   with `--interactive-normal`, which the rest of the UI uses for disabled. */
+.ofc-kanban-toolbar select.dropdown {
+    background-color: transparent;
+    border: 1px solid var(--background-modifier-border);
+    color: var(--text-normal);
+    box-shadow: none;
+}
+
+.ofc-kanban-toolbar select.dropdown:hover {
+    background-color: var(--background-modifier-hover);
+    box-shadow: none;
+}
+
 .ofc-kanban-hide-done {
     display: flex;
     align-items: center;
@@ -158,20 +212,39 @@
     overflow: hidden;
 }
 
-.ofc-kanban-groupby button {
+.ofc-kanban-groupby button:not(.clickable-icon) {
     border: none;
     border-radius: 0;
     box-shadow: none;
-    background-color: var(--background-secondary);
-    color: var(--text-muted);
+    /* Tabs, not buttons: the unselected half stays on the toolbar's own
+       surface so only the selected one carries fill. Any grey pill here
+       (`--background-secondary`, `--interactive-normal`) reads as disabled,
+       and in dark mode those two are nearly the same grey. */
+    background-color: transparent;
+    color: var(--text-normal);
     font-size: var(--font-ui-small);
     padding: var(--size-2-2) var(--size-4-2);
     cursor: pointer;
 }
 
-.ofc-kanban-groupby button.ofc-kanban-groupby-active {
+/* Hairline between segments: with both sharing one surface, the pair needs
+   a seam to read as a segmented control rather than a single wide button. */
+.ofc-kanban-groupby button + button:not(.clickable-icon) {
+    border-left: 1px solid var(--background-modifier-border);
+}
+
+.ofc-kanban-groupby button:not(.clickable-icon):hover {
+    background-color: var(--background-modifier-hover);
+}
+
+.ofc-kanban-groupby button.ofc-kanban-groupby-active:not(.clickable-icon) {
     background-color: var(--interactive-accent);
     color: var(--text-on-accent);
+}
+
+.ofc-kanban-groupby
+    button.ofc-kanban-groupby-active:not(.clickable-icon):hover {
+    background-color: var(--interactive-accent-hover);
 }
 
 .ofc-kanban-board {
@@ -326,6 +399,73 @@
     color: var(--text-error);
 }
 
+/* ---- Event modal ---- */
+
+/* Form controls: outlined like the toolbar's, instead of Obsidian's grey
+   `--interactive-normal` fill. Scoped to `.ofc-modal` so only this
+   plugin's modals are affected. */
+.ofc-modal select {
+    background-color: transparent;
+    border: 1px solid var(--background-modifier-border);
+    color: var(--text-normal);
+    box-shadow: none;
+}
+
+.ofc-modal select:hover {
+    background-color: var(--background-modifier-hover);
+    box-shadow: none;
+}
+
+/* ---- Event modal buttons ---- */
+
+/* Secondary actions (Open Note): outlined like the toolbar's controls.
+   Obsidian's default button fill is `--interactive-normal`, the same grey
+   the palette uses for disabled surfaces, so a plain <button> reads as
+   greyed out next to the accented primary. */
+button.ofc-modal-secondary:not(.clickable-icon) {
+    background-color: transparent;
+    border: 1px solid var(--background-modifier-border);
+    color: var(--text-normal);
+    box-shadow: none;
+}
+
+button.ofc-modal-secondary:not(.clickable-icon):hover {
+    background-color: var(--background-modifier-hover);
+}
+
+/* Destructive action (Delete Event): keeps the error colour, drops the grey
+   fill, and only commits to a red surface on hover. */
+button.ofc-modal-danger:not(.clickable-icon) {
+    background-color: transparent;
+    border: 1px solid var(--background-modifier-error);
+    color: var(--text-error);
+    box-shadow: none;
+}
+
+button.ofc-modal-danger:not(.clickable-icon):hover {
+    background-color: var(--background-modifier-error);
+    color: var(--text-on-accent);
+}
+
+/* ---- Project chip (kanban cards, issue cards, tray) ---- */
+
+.ofc-project-chip {
+    display: inline-block;
+    max-width: 14em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    background-color: var(--background-modifier-border);
+    border-radius: var(--radius-s);
+    padding: 0 var(--size-2-2);
+    /* Halo in the page background: separates the chip from the tray's
+       status-filled cards without needing to know their colour. */
+    box-shadow: 0 0 0 1px var(--background-primary);
+}
+
 .ofc-kanban-empty {
     color: var(--text-muted);
     padding: var(--size-4-4);
@@ -399,8 +539,13 @@
 .ofc-tray-card-meta {
     font-size: var(--font-ui-smaller);
     color: inherit;
-    opacity: 0.8;
     margin-top: var(--size-2-1);
+}
+
+/* Dim the text, not the chip: opacity on the container would sink the chip
+   with it, and the chip carries its own colour. */
+.ofc-tray-card-meta > :not(.ofc-project-chip) {
+    opacity: 0.8;
 }
 
 .ofc-tray-empty {
@@ -474,6 +619,9 @@
 
 .ofc-tray-card-running .ofc-tray-card-meta {
     font-weight: 600;
+}
+
+.ofc-tray-card-running .ofc-tray-card-meta > :not(.ofc-project-chip) {
     opacity: 1;
 }
 
@@ -707,4 +855,402 @@ body.ofc-tray-reorder-active .ofc-tray-group-body:empty {
 
 .ofc-tray-todo-done .ofc-tray-todo-body {
     text-decoration: line-through;
+}
+
+/* ---- Tray: 今日 / Memo / 今週 ---- */
+
+/* The section a week card is dropped on to join today's list. The padding
+   and negative margin give the drop highlight room without shifting rows. */
+.ofc-tray-today {
+    padding: var(--size-2-2);
+    margin: 0 calc(-1 * var(--size-2-2)) var(--size-2-2);
+    border: 1px dashed transparent;
+    border-radius: var(--radius-m);
+}
+
+.ofc-tray-today-droptarget {
+    border-color: var(--interactive-accent);
+    background-color: var(--background-modifier-hover);
+}
+
+.ofc-tray-today .ofc-tray-header {
+    margin-top: 0;
+}
+
+/* The one heading in the tray that reads as a title: today is the list. */
+.ofc-tray-today-title {
+    font-size: var(--font-ui-medium);
+    font-weight: 600;
+    color: var(--text-normal);
+}
+
+.ofc-tray-count {
+    font-weight: 400;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.ofc-tray-section {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+/* Today's rows: outlined on the page surface, like the cards beside them,
+   instead of a grey slab — and two lines of text before truncating, since
+   these are the lines being read most. */
+.ofc-tray-today .ofc-tray-todo {
+    align-items: flex-start;
+    padding: var(--size-2-2) var(--size-2-3);
+    margin-bottom: var(--size-2-2);
+    background-color: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+}
+
+.ofc-tray-today .ofc-tray-todo-check {
+    margin-top: 0.2em;
+}
+
+.ofc-tray-today .ofc-tray-todo-body {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+/* The secondary button on a card (add to today / take off today): no fill,
+   so the play button stays the one obvious action. */
+.ofc-tray-card-btn.ofc-tray-card-btn-quiet:not(.clickable-icon) {
+    background-color: transparent;
+    box-shadow: none;
+    border: none;
+    color: inherit;
+    opacity: 0.55;
+}
+
+.ofc-tray-card-btn.ofc-tray-card-btn-quiet:not(.clickable-icon):hover {
+    background-color: var(--background-modifier-hover);
+    opacity: 1;
+}
+
+/* Today's cards aren't reordered by drag (the note's order is the order);
+   they can still be dragged onto the calendar to stamp a session. */
+.ofc-tray-card-today.ofc-tray-card-done {
+    opacity: 0.65;
+}
+
+.ofc-tray-memo {
+    margin-bottom: var(--size-4-2);
+}
+
+.ofc-tray-memo .ofc-tray-section {
+    margin-top: var(--size-2-2);
+}
+
+.ofc-tray-memo-list {
+    margin-top: var(--size-2-2);
+}
+
+.ofc-tray-memo-line {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    padding: var(--size-2-1) var(--size-2-2);
+    border-left: 2px solid var(--background-modifier-border);
+    margin-bottom: var(--size-2-1);
+    overflow-wrap: anywhere;
+}
+
+/* ---- Mobile: what's left today, above the calendar ---- */
+
+.ofc-today-bar {
+    display: flex;
+    align-items: baseline;
+    gap: var(--size-4-2);
+    flex-shrink: 0;
+    padding: var(--size-2-3) var(--size-4-2);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
+    font-size: var(--font-ui-small);
+    cursor: pointer;
+}
+
+.ofc-today-bar.is-hidden {
+    display: none;
+}
+
+.ofc-today-bar-title {
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.ofc-today-bar-text {
+    color: var(--text-muted);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ---- One colour, one meaning ----
+   Colour says which project (or calendar) a thing belongs to, and nothing
+   else. Status is carried by the tray's group headings and the kanban
+   columns, so nothing is filled with a status colour any more. */
+
+/* Tray rows: today's TODO lines, today's task cards and the week's cards
+   are one kind of row — page surface, hairline frame, and a bar on the left
+   in the project's colour (neutral for lines that belong to no project). */
+.ofc-tray-card,
+.ofc-tray-today .ofc-tray-todo {
+    --ofc-row-color: var(--background-modifier-border-hover);
+    align-items: flex-start;
+    gap: var(--size-4-2);
+    padding: var(--size-2-3) var(--size-4-2);
+    margin-bottom: var(--size-2-2);
+    background-color: var(--background-primary);
+    color: var(--text-normal);
+    border: 1px solid var(--background-modifier-border);
+    border-left: 3px solid var(--ofc-row-color);
+    border-radius: 2px;
+    font-size: var(--font-ui-small);
+}
+
+.ofc-tray-card:hover,
+.ofc-tray-today .ofc-tray-todo:hover {
+    border-top-color: var(--background-modifier-border-hover);
+    border-right-color: var(--background-modifier-border-hover);
+    border-bottom-color: var(--background-modifier-border-hover);
+}
+
+.ofc-tray-card-check,
+.ofc-tray-today .ofc-tray-todo-check {
+    margin-top: 0.2em;
+}
+
+.ofc-tray-card-title {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+}
+
+.ofc-tray-card-meta {
+    color: var(--text-muted);
+}
+
+.ofc-tray-card-meta > * {
+    opacity: 1;
+}
+
+/* Buttons sit on the page surface now, not on a status fill. */
+.ofc-tray-card-btn:not(.clickable-icon) {
+    width: 24px;
+    height: 24px;
+    background-color: transparent;
+    border: 1px solid var(--background-modifier-border);
+    color: var(--text-muted);
+    opacity: 1;
+}
+
+.ofc-tray-card-btn:not(.clickable-icon):hover {
+    background-color: var(--background-modifier-hover);
+    color: var(--text-normal);
+}
+
+.ofc-tray-card-btn.ofc-tray-card-btn-quiet:not(.clickable-icon) {
+    border: none;
+    color: var(--text-faint);
+    opacity: 1;
+}
+
+.ofc-tray-card-btn.ofc-tray-card-btn-quiet:not(.clickable-icon):hover {
+    color: var(--text-normal);
+}
+
+.ofc-tray-card-running .ofc-tray-card-btn:not(.clickable-icon) {
+    background-color: var(--color-green);
+    border-color: var(--color-green);
+    color: white;
+}
+
+/* Taking a task off today is rare: the × shows on hover, and always on
+   touch screens where there is no hover. */
+.ofc-tray-card-btn-off {
+    visibility: hidden;
+}
+
+.ofc-tray-card:hover .ofc-tray-card-btn-off,
+.is-mobile .ofc-tray-card-btn-off {
+    visibility: visible;
+}
+
+.ofc-tray-memo .ofc-tray-section,
+.ofc-tray-week > .ofc-tray-section {
+    font-size: var(--font-ui-small);
+    color: var(--text-normal);
+    margin: var(--size-4-4) 0 var(--size-2-3);
+}
+
+/* メモ: the note's own text, readable at a glance; click to edit. */
+.ofc-tray-memo-body {
+    font-size: var(--font-ui-small);
+    line-height: 1.6;
+    margin-bottom: var(--size-4-2);
+    cursor: text;
+    overflow-wrap: anywhere;
+}
+
+.ofc-tray-memo-body > :first-child {
+    margin-top: 0;
+}
+
+.ofc-tray-memo-body > :last-child {
+    margin-bottom: 0;
+}
+
+.ofc-tray-memo-body ul,
+.ofc-tray-memo-body ol {
+    padding-inline-start: 1.4em;
+    margin-block: 0;
+}
+
+.ofc-tray-memo-body ul ul,
+.ofc-tray-memo-body ol ol,
+.ofc-tray-memo-body ul ol,
+.ofc-tray-memo-body ol ul {
+    color: var(--text-muted);
+}
+
+.ofc-tray-memo-body p {
+    margin-block: var(--size-2-2);
+}
+
+textarea.ofc-tray-memo-editor {
+    display: block;
+    width: 100%;
+    min-height: 6em;
+    resize: none;
+    overflow: hidden;
+    font-family: var(--font-text);
+    font-size: var(--font-ui-small);
+    line-height: 1.6;
+    padding: var(--size-2-3) var(--size-4-2);
+    background-color: var(--background-primary);
+    border: 1px solid var(--interactive-accent);
+    border-radius: var(--radius-s);
+    box-shadow: none;
+    tab-size: 4;
+}
+
+textarea.ofc-tray-memo-editor:focus {
+    box-shadow: none;
+    border-color: var(--interactive-accent);
+}
+
+/* Calendar events: a pale tint of the event's colour with a solid bar on
+   the left, text in the theme's own colour. `--ofc-event-color` is set per
+   event when it mounts (calendar.ts); the fallback covers the mirror shown
+   while dragging. */
+.fc .fc-timegrid-event,
+.fc .fc-daygrid-block-event {
+    --ofc-event-color: var(--interactive-accent);
+    background-color: color-mix(
+        in srgb,
+        var(--ofc-event-color) 24%,
+        var(--background-primary)
+    ) !important;
+    border: none !important;
+    border-left: 3px solid var(--ofc-event-color) !important;
+    border-radius: 3px;
+    box-shadow: none !important;
+}
+
+.fc .fc-timegrid-event .fc-event-main,
+.fc .fc-daygrid-block-event .fc-event-main {
+    color: var(--text-normal) !important;
+}
+
+.fc .fc-timegrid-event .fc-event-time {
+    color: var(--text-muted);
+}
+
+/* Hands (work-log lines that aren't a task): one colour for all of them.
+   Fixed teal rather than the theme's accent — calendars with no colour of
+   their own fall back to the accent, and hands must not look like those.
+   Teal is the one hue no project or calendar in use has taken. */
+.fc .ofc-event-hand {
+    --ofc-event-color: #14a3a3 !important;
+}
+
+/* Planned, not yet lived: lighter, with a dashed edge. */
+.fc .fc-timegrid-event.ofc-event-future,
+.fc .fc-daygrid-block-event.ofc-event-future {
+    background-color: color-mix(
+        in srgb,
+        var(--ofc-event-color) 12%,
+        var(--background-primary)
+    ) !important;
+    outline: 1px dashed
+        color-mix(in srgb, var(--ofc-event-color) 55%, transparent);
+    outline-offset: -1px;
+}
+
+/* Checkboxes on events follow the theme now that the fill is pale. */
+.fc .ofc-checkbox-white,
+.fc .ofc-checkbox-black {
+    border-color: var(--checkbox-border-color) !important;
+}
+
+/* Today's column is the one that reads as "here". */
+.fc .fc-col-header-cell.fc-day-today .fc-col-header-cell-cushion {
+    color: var(--interactive-accent);
+    font-weight: 600;
+}
+
+/* ---- Memo column (desktop): right of the calendar ---- */
+
+.ofc-memo-pane {
+    width: 300px;
+    flex-shrink: 0;
+    overflow-y: auto;
+    padding-left: var(--size-4-2);
+    border-left: 1px solid var(--background-modifier-border);
+}
+
+.ofc-memo-pane.ofc-tray-memo .ofc-tray-section {
+    margin-top: var(--size-2-2);
+}
+
+/* In its own column the memo is the page, not a footnote in a list. */
+.ofc-memo-pane .ofc-tray-memo-body {
+    font-size: var(--font-ui-medium);
+}
+
+.ofc-memo-pane textarea.ofc-tray-memo-editor {
+    font-size: var(--font-ui-medium);
+    min-height: 12em;
+}
+
+/* ---- Tray and memo as panes of their own ---- */
+
+/* The calendar's built-in column steps aside while its pane is open. */
+.ofc-task-tray.is-popped,
+.ofc-memo-pane.is-popped,
+.ofc-tray-resizer.is-popped {
+    display: none;
+}
+
+.ofc-tray-tools {
+    display: flex;
+    align-items: center;
+    gap: var(--size-2-2);
+}
+
+/* In a pane the width belongs to Obsidian, not to the saved column width. */
+.ofc-task-tray.ofc-task-tray-pane,
+.ofc-memo-pane.ofc-memo-pane-standalone {
+    width: 100%;
+    height: 100%;
+    border: none;
+    padding: 0;
 }

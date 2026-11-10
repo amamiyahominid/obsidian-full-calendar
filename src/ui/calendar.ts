@@ -221,7 +221,18 @@ export function renderCalendar(
                 ? ["ofc-task-completed"]
                 : [],
 
-        eventDidMount: ({ event, el, textColor }) => {
+        eventDidMount: ({ event, el, borderColor }) => {
+            // The event's one colour (its project or calendar) as a CSS
+            // variable: the stylesheet paints a pale tint of it with a solid
+            // bar on the left, and keeps the text in the theme's own colour.
+            if (borderColor) {
+                el.style.setProperty("--ofc-event-color", borderColor);
+            }
+            // Still ahead of now: a plan, not a record. Drawn with a dashed
+            // edge until its time has come.
+            if (event.start && event.start.getTime() > Date.now()) {
+                el.addClass("ofc-event-future");
+            }
             // Guaranteed recurrence exclusion. FullCalendar's rrule plugin is
             // supposed to drop occurrences listed in `exdate` / EXDATE, but in
             // the Electron runtime (with our mismatched @fullcalendar plugin
@@ -262,12 +273,6 @@ export function renderCalendar(
                             }
                         }
                     };
-                    // Make the checkbox more visible against different color events.
-                    if (textColor == "black") {
-                        checkbox.addClass("ofc-checkbox-black");
-                    } else {
-                        checkbox.addClass("ofc-checkbox-white");
-                    }
 
                     // Depending on the view, we should put the checkbox in a different spot.
                     const container =

@@ -88,11 +88,21 @@ function stringifyYamlLine(
     return `${String(k)}: ${stringifyYamlAtom(v)}`;
 }
 
+// Entries worth writing, narrowed to the atoms the YAML writer accepts.
+// `undefined` means "no change" and `null` is the deletion marker, so both
+// are dropped here rather than stringified.
+function printableEntries(
+    fields: Partial<OFCEvent>
+): [string, PrintableAtom][] {
+    return Object.entries(fields).flatMap(([k, v]) =>
+        v === undefined || v === null ? [] : [[k, v] as [string, PrintableAtom]]
+    );
+}
+
 function newFrontmatter(fields: Partial<OFCEvent>): string {
     return (
         "---\n" +
-        Object.entries(fields)
-            .filter(([_, v]) => v !== undefined && v !== null)
+        printableEntries(fields)
             .map(([k, v]) => stringifyYamlLine(k, v))
             .join("\n") +
         "\n---\n"
@@ -106,9 +116,9 @@ function modifyFrontmatterString(
     const frontmatter = extractFrontmatter(page)?.split("\n");
     let newFrontmatter: string[] = [];
     if (!frontmatter) {
-        newFrontmatter = Object.entries(modifications)
-            .filter(([k, v]) => v !== undefined && v !== null)
-            .map(([k, v]) => stringifyYamlLine(k, v));
+        newFrontmatter = printableEntries(modifications).map(([k, v]) =>
+            stringifyYamlLine(k, v)
+        );
         page = "\n" + page;
     } else {
         const linesAdded: Set<string | number | symbol> = new Set();
@@ -317,6 +327,11 @@ export default class FullNoteCalendar extends EditableCalendar {
                 )
             ) as Partial<OFCEvent>;
         }
+        // `project` is read-only board metadata: it is parsed out of the
+        // note's wikilinks but never written back. The flow-style array
+        // writer would turn `- "[[03_x]]"` into `project: [03_x]`, dropping
+        // the links the graph and Dataview depend on.
+        delete (modifications as Record<string, unknown>).project;
         await this.app.rewrite(file, (page) =>
             modifyFrontmatterString(page, modifications)
         );

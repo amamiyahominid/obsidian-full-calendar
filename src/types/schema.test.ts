@@ -241,6 +241,36 @@ describe("schema parsing tests", () => {
         it("is rejected without a status", () => {
             expect(validateEvent({ title: "Just a note" })).toBeNull();
         });
+        it("strips wikilink syntax from project", () => {
+            const event = validateEvent({
+                title: "My Issue",
+                status: "Backlog",
+                project: ["[[03_income]]", "[[04_health|health]]", "[[a#b]]"],
+            });
+            expect(event?.type === "single" && event.project).toEqual([
+                "03_income",
+                "04_health",
+                "a",
+            ]);
+        });
+        it("wraps a single hand-written project", () => {
+            const event = validateEvent({
+                title: "My Issue",
+                status: "Backlog",
+                project: "[[03_income]]",
+            });
+            expect(event?.type === "single" && event.project).toEqual([
+                "03_income",
+            ]);
+        });
+        it("collapses an empty project: line to undefined", () => {
+            const event = validateEvent({
+                title: "My Issue",
+                status: "Backlog",
+                project: null,
+            });
+            expect(event?.type === "single" && event.project).toBeUndefined();
+        });
     });
 
     describe("simple recurring events", () => {

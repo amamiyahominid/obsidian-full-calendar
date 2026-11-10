@@ -15,6 +15,11 @@ export default class ReactModal<Props, Component> extends Modal {
 
     async onOpen() {
         const { contentEl } = this;
+        // Scope for this plugin's modal styling. Obsidian's bare `select`
+        // rule fills form controls with `--interactive-normal` (the grey it
+        // also uses for disabled), and a plugin can't restyle `select`
+        // globally without touching Obsidian's own modals.
+        contentEl.addClass("ofc-modal");
         ReactDOM.render(
             await this.onOpenCallback(() => this.close()),
             contentEl

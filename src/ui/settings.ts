@@ -66,6 +66,11 @@ export interface FullCalendarSettings {
     // stored "issue" as a third axis; readers treat that as scope=issue.
     kanbanFilters: {
         project: string | null;
+        // Projects tab filters by calendar source (`project`); the Issues tab
+        // filters by the `project:` frontmatter name instead, so it needs its
+        // own slot. Optional: settings saved before it existed read as
+        // undefined and fall back to "no filter".
+        issueProject?: string | null;
         sprint: string;
         hideDone: boolean;
         groupBy?: "status" | "sprint" | "issue";
@@ -74,6 +79,8 @@ export interface FullCalendarSettings {
     // Width of the task tray beside the calendar, in px. Set by dragging the
     // tray's resize handle.
     trayWidth: number;
+    // Width of the memo column on the calendar's right (desktop).
+    memoWidth: number;
     // Manual tray order, keyed by sprint week ("2026-W28"). Entries are task
     // linktexts. Only the current week's key is kept.
     trayOrder: Record<string, string[]>;
@@ -107,12 +114,14 @@ export const DEFAULT_SETTINGS: FullCalendarSettings = {
     reminderMinutesBefore: 10,
     kanbanFilters: {
         project: null,
+        issueProject: null,
         sprint: "all",
         hideDone: false,
         groupBy: "status",
         scope: "projects",
     },
     trayWidth: 220,
+    memoWidth: 300,
     trayOrder: {},
     trayExpanded: {},
     statuses: DEFAULT_STATUSES,

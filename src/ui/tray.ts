@@ -1,14 +1,18 @@
-import { Platform, setIcon } from "obsidian";
+import { Notice, Platform, setIcon } from "obsidian";
 import { DateTime } from "luxon";
 import { Draggable } from "@fullcalendar/interaction";
 import type FullCalendarPlugin from "../main";
-import { collectTaskCards, moveCardToStatus, Card } from "./kanban";
+import {
+    collectTaskCards,
+    moveCardToStatus,
+    projectLabel,
+    Card,
+} from "./kanban";
 import { dueBadge, sprintBucket, weekOf } from "./sprint";
 import { openFileForEvent } from "./actions";
 import { launchEditModal } from "./event_modal";
 import { toggleTask } from "./tasks";
 import {
-    contrastTextColor,
     getStatusColor,
     isDoneStatus,
     trayCollapsedByDefault,
@@ -25,6 +29,7 @@ import {
     RunningSession,
 } from "../core/worklog";
 import { formatHours } from "./sprint";
+import { MemoPanel, renderMemoPanel } from "./memoPanel";
 
 /*
  * Task tray: THE work list next to the calendar. Cards live in status
@@ -34,9 +39,90 @@ import { formatHours } from "./sprint";
  * calendar stamps a work-log session at the drop position (the task itself
  * never moves — see core/worklog.ts). Dragging a TODO onto the calendar
  * reschedules the TODO line itself.
+ *
+ * Above the groups sits "今日": the daily note's TODO lines, which are THE
+ * list for today. A line that is just a wikilink to a task note shows as
+ * that task's card, and a week card dropped on the section (or sent with
+ * its button) adds such a line — the task's own status and sprint are
+ * untouched. A one-line memo field under it appends to the note's Memo.
  */
 
 export type TaskTray = { refresh: () => void; destroy: () => void };
+
+/** "[[a|b]] rest" → "b rest": TODO lines read as text, not as markup. */
+const plainTitle = (title: string): string =>
+    title.replace(
+        /\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]/g,
+        (_m, target: string, alias?: string) => alias || target
+    );
+
+const shortDate = (iso: string): string => {
+    const d = DateTime.fromISO(iso);
+    return d.isValid ? `${d.month}/${d.day}` : iso;
+};
+
+/** What the mobile "today" bar above the calendar shows. */
+export type TodaySummary = { open: number; first: string | null };
+
+/** The task a TODO line stands for, when the line is nothing but a link. */
+const soleLinktext = (title: string): string | null => {
+    const m = title.trim().match(/^\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]$/);
+    return m ? m[1].trim() : null;
+};
+
+function todoCalendarId(plugin: FullCalendarPlugin): string | null {
+    for (const source of plugin.cache.getAllEvents()) {
+        const cal = plugin.cache.getCalendarById(source.id);
+        if (cal instanceof DailyNoteCalendar && cal.todos) {
+            return source.id;
+        }
+    }
+    return null;
+}
+
+/** Put a task on today's list: one `- [ ] [[task]]` line in the daily
+ * note's TODO. A task already listed today is left alone. */
+async function addTaskToToday(
+    plugin: FullCalendarPlugin,
+    linktext: string
+): Promise<void> {
+    const calendarId = todoCalendarId(plugin);
+    if (!calendarId) {
+        new Notice(
+            'No TODO calendar configured. Add a "Daily Note" calendar with TODOs enabled in the Full Calendar settings.'
+        );
+        return;
+    }
+    const today = DateTime.now().toISODate();
+    const listed = plugin.cache
+        .getAllEvents()
+        .filter((s) => s.id === calendarId)
+        .flatMap((s) => s.events)
+        .some(
+            ({ event }) =>
+                event.type === "single" &&
+                event.date === today &&
+                soleLinktext(event.title) === linktext
+        );
+    if (listed) {
+        return;
+    }
+    try {
+        await plugin.cache.addEvent(calendarId, {
+            type: "single",
+            title: `[[${linktext}]]`,
+            date: today,
+            endDate: null,
+            allDay: true,
+            completed: false,
+        });
+    } catch (e) {
+        if (e instanceof Error) {
+            console.error(e);
+            new Notice(e.message);
+        }
+    }
+}
 
 const cardDone = (c: Card): boolean => isDoneStatus(c.event.status);
 
@@ -127,6 +213,7 @@ function makeBodyDraggable(
         let reordering = false;
         let moved = false;
         let headerTarget: HTMLElement | null = null;
+        let todayTarget: HTMLElement | null = null;
 
         const liftTimer = Platform.isMobile
             ? window.setTimeout(() => {
@@ -156,6 +243,8 @@ function makeBodyDraggable(
         const clearHeaderTarget = () => {
             headerTarget?.removeClass("ofc-tray-group-droptarget");
             headerTarget = null;
+            todayTarget?.removeClass("ofc-tray-today-droptarget");
+            todayTarget = null;
         };
         const enterReorder = () => {
             reordering = true;
@@ -177,6 +266,22 @@ function makeBodyDraggable(
         // between their cards; a collapsed group highlights its header.
         const positionCard = (e: PointerEvent) => {
             clearHeaderTarget();
+            // Over "今日": the card stays where it lives (adding it to today
+            // doesn't move it out of its group) and the section lights up.
+            const todayEl = trayEl.querySelector(
+                ".ofc-tray-today"
+            ) as HTMLElement | null;
+            if (todayEl) {
+                const r = todayEl.getBoundingClientRect();
+                if (e.clientY >= r.top && e.clientY <= r.bottom) {
+                    if (homeParent) {
+                        homeParent.insertBefore(cardEl, homeNext);
+                    }
+                    todayTarget = todayEl;
+                    todayEl.addClass("ofc-tray-today-droptarget");
+                    return;
+                }
+            }
             type Section = {
                 header: HTMLElement;
                 body: HTMLElement | null;
@@ -268,6 +373,14 @@ function makeBodyDraggable(
                 clearHeaderTarget();
                 return;
             }
+            if (todayTarget) {
+                leaveReorder(true);
+                const linktext = cardEl.dataset.linktext;
+                if (linktext) {
+                    await addTaskToToday(plugin, linktext);
+                }
+                return;
+            }
             const dropStage = headerTarget
                 ? headerTarget.dataset.stage
                 : (cardEl.closest(".ofc-tray-group-body") as HTMLElement | null)
@@ -311,7 +424,14 @@ export function trayCards(
     return cards.sort((a, b) => Number(cardDone(a)) - Number(cardDone(b)));
 }
 
-type TrayTodo = { id: string; title: string; date: string; done: boolean };
+type TrayTodo = {
+    id: string;
+    title: string;
+    date: string;
+    done: boolean;
+    /** Line in its daily note — today's list reads in written order. */
+    line: number;
+};
 
 // Sticky keys for TODO rows. Event IDs churn when the daily note is edited,
 // so key on what identifies the line to a human instead.
@@ -357,21 +477,48 @@ function collectTrayTodos(
             ) {
                 continue;
             }
-            todos.push({ id, title: event.title, date: event.date, done });
+            let line = 0;
+            try {
+                line =
+                    plugin.cache.getInfoForEditableEvent(id).location
+                        ?.lineNumber ?? 0;
+            } catch {
+                // Not in the store any more; order it first.
+            }
+            todos.push({
+                id,
+                title: event.title,
+                date: event.date,
+                done,
+                line,
+            });
         }
     }
-    // Done sinks last, mirroring the task cards; open ones oldest first.
+    // Done sinks last, mirroring the task cards; open ones oldest day
+    // first, and within a day in the order they were written — the daily
+    // note's order is the order to work in.
     return todos.sort((a, b) =>
         a.done !== b.done
             ? Number(a.done) - Number(b.done)
-            : a.date.localeCompare(b.date)
+            : a.date.localeCompare(b.date) || a.line - b.line
     );
 }
 
 export function renderTaskTray(
     plugin: FullCalendarPlugin,
     el: HTMLElement,
-    opts: { draggable?: boolean } = {}
+    opts: {
+        draggable?: boolean;
+        // Host the memo panel inside the tray, between today and the week.
+        memo?: boolean;
+        // Shows a button on the 今日 heading that moves the tray into a
+        // pane of its own.
+        onPopOut?: () => void;
+        // The reverse, shown when the tray IS a pane: close it, so the
+        // calendar's built-in column comes back.
+        onPopIn?: () => void;
+        onToday?: (summary: TodaySummary) => void;
+    } = {}
 ): TaskTray {
     // FullCalendar's external-drag integration. Task cards drop as new
     // work-log sessions; TODO rows carry their event id so the drop handler
@@ -411,6 +558,18 @@ export function renderTaskTray(
     // not vanish the moment it's checked. Keyed by date+title.
     const seenOpenTodos = new Set<string>();
 
+    // Three fixed containers, redrawn separately: today's list on top, the
+    // week's groups at the bottom, and — when the tray hosts it (mobile; on
+    // desktop it's a column of its own) — the memo panel between them. The
+    // memo's element is never rebuilt by a tray redraw, so an open editor
+    // keeps its caret while cards come and go around it.
+    const topEl = el.createDiv({ cls: "ofc-tray-top" });
+    let memoPanel: MemoPanel | null = null;
+    if (opts.memo) {
+        memoPanel = renderMemoPanel(plugin, el.createDiv());
+    }
+    const weekEl = el.createDiv({ cls: "ofc-tray-week" });
+
     // Click-vs-drag suppression shared by cards and TODO rows: browsers fire
     // a click after a drag; ignore it when the pointer travelled.
     const suppressDragClick = (
@@ -434,9 +593,8 @@ export function renderTaskTray(
     };
 
     const refresh = () => {
-        el.empty();
-        const headerEl = el.createDiv({ cls: "ofc-tray-header" });
-        headerEl.createSpan({ text: `This week · ${weekOf(0)}` });
+        topEl.empty();
+        weekEl.empty();
 
         const running = findRunningSessions(plugin);
         const today = DateTime.now().toISODate();
@@ -446,7 +604,7 @@ export function renderTaskTray(
         for (const stale of running.filter(
             (r) => r.event.date && r.event.date < today
         )) {
-            const row = el.createDiv({ cls: "ofc-tray-warning" });
+            const row = topEl.createDiv({ cls: "ofc-tray-warning" });
             row.createSpan({
                 text: `⏱ ${stale.event.title} — running since ${stale.event.date}`,
             });
@@ -470,17 +628,48 @@ export function renderTaskTray(
             return !!link && seenUnfinished.has(link);
         });
 
+        const todos = collectTrayTodos(plugin, (key) => seenOpenTodos.has(key));
+        for (const todo of todos) {
+            if (!todo.done) {
+                seenOpenTodos.add(todoKey(todo.date, todo.title));
+            }
+        }
+        // Every task note by linktext — a TODO line may point at a task
+        // outside this week's sprint, and it still deserves its card.
+        const allCardsByLink = new Map<string, Card>();
+        for (const c of collectTaskCards(plugin)) {
+            const link = linktextForEvent(plugin, c.id);
+            if (link) {
+                allCardsByLink.set(link, c);
+            }
+        }
+        // Tasks already on today's list: their week cards drop the
+        // "add to today" button.
+        const todayLinks = new Set(
+            todos
+                .filter((t) => t.date === today)
+                .map((t) => soleLinktext(t.title))
+                .filter((l): l is string => !!l)
+        );
+
+        // `todo` set: the card stands for a line on today's list. Its
+        // checkbox then ticks that line (done for today), not the task, and
+        // it doesn't take part in the groups' reorder drag.
         const renderCard = (
             parent: HTMLElement,
             card: Card,
-            linktext: string
+            linktext: string,
+            todo?: TrayTodo
         ) => {
             const session = runningByLink.get(linktext);
-            const done = cardDone(card);
-            if (!done) {
+            const done = todo ? todo.done : cardDone(card);
+            if (!done && !todo) {
                 seenUnfinished.add(linktext);
             }
             const cardEl = parent.createDiv({ cls: "ofc-tray-card" });
+            if (todo) {
+                cardEl.addClass("ofc-tray-card-today");
+            }
             if (session) {
                 cardEl.addClass("ofc-tray-card-running");
             }
@@ -488,19 +677,20 @@ export function renderTaskTray(
                 cardEl.addClass("ofc-tray-card-done");
             }
             cardEl.dataset.linktext = linktext;
-            makeBodyDraggable(cardEl, el, plugin, card.id, card.event.status);
+            if (!todo) {
+                makeBodyDraggable(
+                    cardEl,
+                    el,
+                    plugin,
+                    card.id,
+                    card.event.status
+                );
+            }
 
-            // Match the calendar's event rendering (see toEventInput): fill
-            // by workflow status, frame in the source calendar's color.
-            const fill =
-                (card.event.status && getStatusColor(card.event.status)) ||
-                card.sourceColor ||
-                null;
-            cardEl.style.borderColor =
-                card.sourceColor || "var(--interactive-accent)";
-            if (fill) {
-                cardEl.style.backgroundColor = fill;
-                cardEl.style.color = contrastTextColor(fill);
+            // One colour, one meaning: the bar on the left says which
+            // project. Status is what the group heading is for.
+            if (card.sourceColor) {
+                cardEl.style.setProperty("--ofc-row-color", card.sourceColor);
             }
 
             // Finish (or un-finish a mis-tap) right from the tray.
@@ -512,7 +702,7 @@ export function renderTaskTray(
             check.setAttr("aria-label", done ? "Reopen" : "Mark done");
             check.onclick = async (ev) => {
                 ev.stopPropagation();
-                await plugin.cache.processEvent(card.id, (e) =>
+                await plugin.cache.processEvent(todo ? todo.id : card.id, (e) =>
                     toggleTask(e, !done)
                 );
             };
@@ -532,39 +722,75 @@ export function renderTaskTray(
                       }`
                     : null,
             ].filter((p): p is string => !!p);
-            const due = done ? null : dueBadge(card.event.due);
-            if (parts.length > 0 || due) {
-                const metaEl = bodyEl.createDiv({
-                    cls: "ofc-tray-card-meta",
+            const due = cardDone(card) ? null : dueBadge(card.event.due);
+            const metaEl = bodyEl.createDiv({ cls: "ofc-tray-card-meta" });
+            // The project's name in words; its colour is already the bar.
+            metaEl.createSpan({
+                cls: "ofc-tray-card-project",
+                text: projectLabel(card.calendarId),
+            });
+            if (parts.length > 0) {
+                metaEl.createSpan({ text: ` · ${parts.join(" · ")}` });
+            }
+            if (due) {
+                const dueEl = metaEl.createSpan({
+                    cls: "ofc-tray-card-due",
+                    text: ` · ${due.text}`,
                 });
-                metaEl.setText(parts.join(" · "));
-                if (due) {
-                    const dueEl = metaEl.createSpan({
-                        cls: "ofc-tray-card-due",
-                        text: (parts.length > 0 ? " · " : "") + due.text,
-                    });
-                    if (due.urgent) {
-                        dueEl.addClass("ofc-tray-card-due-urgent");
-                    }
+                if (due.urgent) {
+                    dueEl.addClass("ofc-tray-card-due-urgent");
                 }
             }
+            if (todo && todo.date < today) {
+                metaEl.createSpan({
+                    cls: "ofc-tray-todo-date",
+                    text: ` · ${shortDate(todo.date)}`,
+                });
+            }
 
-            const btn = cardEl.createEl("button", {
-                cls: "ofc-tray-card-btn",
-            });
-            setIcon(btn, session ? "square" : "play");
-            btn.setAttr(
-                "aria-label",
-                session ? "Stop session" : "Start working now"
-            );
-            btn.onclick = async (ev) => {
-                ev.stopPropagation();
-                if (session) {
-                    await stopSession(plugin, session);
-                } else {
-                    await startSession(plugin, `[[${linktext}]]`);
-                }
-            };
+            // One button per row, by where the row lives: on today's list
+            // it starts (or stops) the clock; in the week it sends the task
+            // to today — the drag does that too, but phones have no room to
+            // drag far. Taking a task off today is the quiet × beside it.
+            if (todo) {
+                const off = cardEl.createEl("button", {
+                    cls: "ofc-tray-card-btn ofc-tray-card-btn-quiet ofc-tray-card-btn-off",
+                });
+                setIcon(off, "x");
+                off.setAttr("aria-label", "今日から外す");
+                off.onclick = async (ev) => {
+                    ev.stopPropagation();
+                    await plugin.cache.deleteEvent(todo.id);
+                };
+            }
+            if (todo || session) {
+                const btn = cardEl.createEl("button", {
+                    cls: "ofc-tray-card-btn",
+                });
+                setIcon(btn, session ? "square" : "play");
+                btn.setAttr(
+                    "aria-label",
+                    session ? "Stop session" : "Start working now"
+                );
+                btn.onclick = async (ev) => {
+                    ev.stopPropagation();
+                    if (session) {
+                        await stopSession(plugin, session);
+                    } else {
+                        await startSession(plugin, `[[${linktext}]]`);
+                    }
+                };
+            } else if (!cardDone(card) && !todayLinks.has(linktext)) {
+                const add = cardEl.createEl("button", {
+                    cls: "ofc-tray-card-btn ofc-tray-card-btn-quiet",
+                });
+                setIcon(add, "calendar-plus");
+                add.setAttr("aria-label", "今日に入れる");
+                add.onclick = async (ev) => {
+                    ev.stopPropagation();
+                    await addTaskToToday(plugin, linktext);
+                };
+            }
 
             // Click opens the edit modal; ctrl/cmd-click opens the task note
             // (same affordance as calendar events).
@@ -579,6 +805,109 @@ export function renderTaskTray(
                 }
             });
         };
+
+        // --- 今日: the daily note's TODO lines, up to today. Rolling forward
+        // is manual; forgotten ones stay visible here with their date.
+        // Checked ones stay listed too (today's always; older ones for the
+        // session). A line that is only a link to a task shows as its card.
+        const todayEl = topEl.createDiv({ cls: "ofc-tray-today" });
+        const todayHead = todayEl.createDiv({ cls: "ofc-tray-header" });
+        todayHead.createSpan({ cls: "ofc-tray-today-title", text: "今日" });
+        const todayTools = todayHead.createDiv({ cls: "ofc-tray-tools" });
+        const openCount = todos.filter((t) => !t.done).length;
+        if (opts.onPopOut) {
+            const popBtn = todayTools.createEl("button", {
+                cls: "ofc-tray-card-btn ofc-tray-card-btn-quiet",
+            });
+            setIcon(popBtn, "arrow-up-right");
+            popBtn.setAttr("aria-label", "別のペインに出す");
+            popBtn.onclick = (ev) => {
+                ev.stopPropagation();
+                opts.onPopOut?.();
+            };
+        }
+        if (opts.onPopIn) {
+            const backBtn = todayTools.createEl("button", {
+                cls: "ofc-tray-card-btn ofc-tray-card-btn-quiet",
+            });
+            setIcon(backBtn, "arrow-down-left");
+            backBtn.setAttr("aria-label", "カレンダーに戻す");
+            backBtn.onclick = (ev) => {
+                ev.stopPropagation();
+                opts.onPopIn?.();
+            };
+        }
+        if (todos.length > 0) {
+            todayTools.createSpan({
+                cls: "ofc-tray-count",
+                text: `${todos.length - openCount} / ${todos.length}`,
+            });
+        }
+        for (const todo of todos) {
+            const link = soleLinktext(todo.title);
+            const card = link ? allCardsByLink.get(link) : undefined;
+            if (link && card) {
+                renderCard(todayEl, card, link, todo);
+                continue;
+            }
+            const row = todayEl.createDiv({ cls: "ofc-tray-todo" });
+            if (todo.done) {
+                row.addClass("ofc-tray-todo-done");
+            }
+            row.dataset.todoId = todo.id;
+            row.dataset.todoTitle = todo.title;
+            const check = row.createEl("input", {
+                type: "checkbox",
+                cls: "ofc-tray-todo-check",
+            });
+            check.checked = todo.done;
+            check.setAttr(
+                "aria-label",
+                todo.done ? "Mark not done" : "Mark done"
+            );
+            check.onclick = async (ev) => {
+                ev.stopPropagation();
+                await plugin.cache.processEvent(todo.id, (e) =>
+                    toggleTask(e, !todo.done)
+                );
+            };
+            row.createDiv({
+                cls: "ofc-tray-todo-body",
+                text: plainTitle(todo.title),
+            });
+            if (todo.date < today) {
+                row.createSpan({
+                    cls: "ofc-tray-todo-date",
+                    text: shortDate(todo.date),
+                });
+            }
+            suppressDragClick(row, () => {
+                launchEditModal(plugin, todo.id);
+            });
+        }
+        if (todos.length === 0) {
+            todayEl.createDiv({
+                cls: "ofc-tray-empty",
+                text: "今日やることを、今週のカードから入れる。",
+            });
+        }
+        const firstOpen = todos.find((t) => !t.done);
+        opts.onToday?.({
+            open: openCount,
+            first: firstOpen
+                ? plainTitle(
+                      (soleLinktext(firstOpen.title) &&
+                          allCardsByLink.get(soleLinktext(firstOpen.title)!)
+                              ?.event.title) ||
+                          firstOpen.title
+                  )
+                : null,
+        });
+
+        weekEl.createDiv({
+            cls: "ofc-tray-section",
+            text: `今週 · ${weekOf(0)}`,
+        });
 
         // --- Status groups: every stage in kanban order — INCLUDING empty
         // ones, so any stage is always available as a drag-and-drop target —
@@ -602,7 +931,7 @@ export function renderTaskTray(
             const expanded =
                 plugin.settings.trayExpanded?.[stage] ??
                 !trayCollapsedByDefault(stage);
-            const header = el.createDiv({ cls: "ofc-tray-group" });
+            const header = weekEl.createDiv({ cls: "ofc-tray-group" });
             header.dataset.stage = stage;
             const chevron = header.createSpan({
                 cls: "ofc-tray-group-chevron",
@@ -629,7 +958,7 @@ export function renderTaskTray(
                 refresh();
             };
             if (expanded) {
-                const body = el.createDiv({ cls: "ofc-tray-group-body" });
+                const body = weekEl.createDiv({ cls: "ofc-tray-group-body" });
                 body.dataset.stage = stage;
                 const byLink = new Map<string, Card>();
                 for (const c of groupCards) {
@@ -645,65 +974,18 @@ export function renderTaskTray(
         }
 
         if (cards.length === 0) {
-            el.createDiv({
+            weekEl.createDiv({
                 cls: "ofc-tray-empty",
                 text: "No unfinished tasks this sprint.",
             });
-        }
-
-        // --- TODOs from daily notes, up to today. Rolling forward is
-        // manual; this list is where forgotten ones stay visible. Checked
-        // ones stay listed too (today's always; older ones for the session).
-        const todos = collectTrayTodos(plugin, (key) => seenOpenTodos.has(key));
-        for (const todo of todos) {
-            if (!todo.done) {
-                seenOpenTodos.add(todoKey(todo.date, todo.title));
-            }
-        }
-        if (todos.length > 0) {
-            el.createDiv({ cls: "ofc-tray-section", text: "TODO" });
-            for (const todo of todos) {
-                const row = el.createDiv({ cls: "ofc-tray-todo" });
-                if (todo.done) {
-                    row.addClass("ofc-tray-todo-done");
-                }
-                row.dataset.todoId = todo.id;
-                row.dataset.todoTitle = todo.title;
-                const check = row.createEl("input", {
-                    type: "checkbox",
-                    cls: "ofc-tray-todo-check",
-                });
-                check.checked = todo.done;
-                check.setAttr(
-                    "aria-label",
-                    todo.done ? "Mark not done" : "Mark done"
-                );
-                check.onclick = async (ev) => {
-                    ev.stopPropagation();
-                    await plugin.cache.processEvent(todo.id, (e) =>
-                        toggleTask(e, !todo.done)
-                    );
-                };
-                row.createDiv({
-                    cls: "ofc-tray-todo-body",
-                    text: todo.title,
-                });
-                if (todo.date < today) {
-                    const d = DateTime.fromISO(todo.date);
-                    row.createSpan({
-                        cls: "ofc-tray-todo-date",
-                        text: d.isValid ? `${d.month}/${d.day}` : todo.date,
-                    });
-                }
-                suppressDragClick(row, () => {
-                    launchEditModal(plugin, todo.id);
-                });
-            }
         }
     };
     refresh();
     return {
         refresh,
-        destroy: () => draggables.forEach((d) => d.destroy()),
+        destroy: () => {
+            draggables.forEach((d) => d.destroy());
+            memoPanel?.destroy();
+        },
     };
 }

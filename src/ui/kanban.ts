@@ -176,13 +176,58 @@ const cardStatus = (e: Card["event"]): string =>
 
 const cardDone = (e: Card["event"]): boolean => isDoneStatus(e.status);
 
+// Projects an issue is tied to, from its `project:` frontmatter. Tasks take
+// their project from the folder they live in, so this is issues-only.
+const cardProjects = (e: Card["event"]): string[] => e.project ?? [];
+
+// Sentinel for the Issues project dropdown: show only issues that aren't on
+// any project — questions with no year-scale container to answer them.
+const NO_PROJECT = "__none__";
+
 // "local::30_projects/01_foo/tasks" → "01_foo". Falls back to the raw ID for
 // sources that don't follow the project-folder convention.
-const projectLabel = (calendarId: string): string => {
+export const projectLabel = (calendarId: string): string => {
     const path = calendarId.split("::")[1] ?? calendarId;
     const segments = path.replace(/\/tasks$/, "").split("/");
     return segments[segments.length - 1] || calendarId;
 };
+
+/**
+ * The colour a project reads as everywhere: its own calendar source's.
+ * Tasks already carry it on the card (`sourceColor`), but an issue names its
+ * project in frontmatter and has to look it up, so that one project is one
+ * colour on every surface.
+ */
+export const projectColor = (
+    plugin: FullCalendarPlugin,
+    name: string
+): string | null => {
+    for (const source of plugin.cache.getAllEvents()) {
+        if (projectLabel(source.id) === name) {
+            return source.color ?? null;
+        }
+    }
+    return null;
+};
+
+/**
+ * The project chip. One renderer for all three surfaces — task cards, issue
+ * cards, and the tray — so a project looks the same wherever it appears.
+ * The halo is drawn in the page background so the chip stays legible on the
+ * tray's status-filled cards as well as on the board's plain ones.
+ */
+export function renderProjectChip(
+    parent: HTMLElement,
+    name: string,
+    color: string | null | undefined
+): HTMLElement {
+    const chip = parent.createSpan({ cls: "ofc-project-chip", text: name });
+    if (color) {
+        chip.style.backgroundColor = color;
+        chip.style.color = contrastTextColor(color);
+    }
+    return chip;
+}
 
 export class KanbanView extends ItemView {
     plugin: FullCalendarPlugin;
@@ -255,11 +300,21 @@ export class KanbanView extends ItemView {
 
     private applyFilters(cards: Card[]): Card[] {
         const { project, sprint, hideDone } = this.filters;
-        // Issues have no project or sprint — only the done toggle applies.
+        // Issues have no sprint, and their project comes from frontmatter
+        // rather than from the folder they live in — one issue can feed
+        // several projects, or none.
         if (this.boardScope === "issue") {
-            return cards.filter(
-                (c) => !(hideDone && isDoneStatus(cardStatus(c.event)))
-            );
+            const issueProject = this.filters.issueProject ?? null;
+            return cards.filter((c) => {
+                if (hideDone && isDoneStatus(cardStatus(c.event))) {
+                    return false;
+                }
+                const projects = cardProjects(c.event);
+                if (issueProject === NO_PROJECT) {
+                    return projects.length === 0;
+                }
+                return !issueProject || projects.includes(issueProject);
+            });
         }
         // The sprint dropdown only applies on the status axis — on the sprint
         // axis the columns already partition by sprint.
@@ -452,9 +507,32 @@ export class KanbanView extends ItemView {
             }
         }
 
-        // Project and sprint filters are meaningless for issues — the Issues
-        // tab is a single folder with no sprint field. Only Hide Done stays.
+        // Issues all live in one folder, so the source-based project filter
+        // below can't tell them apart; they filter by their `project:`
+        // frontmatter instead. Sprint stays meaningless here.
         if (this.boardScope === "issue") {
+            const names = [
+                ...new Set(allCards.flatMap((c) => cardProjects(c.event))),
+            ].sort();
+            const select = toolbar.createEl("select", { cls: "dropdown" });
+            select.createEl("option", { value: "", text: "All projects" });
+            select.createEl("option", {
+                value: NO_PROJECT,
+                text: "No project",
+            });
+            for (const name of names) {
+                select.createEl("option", { value: name, text: name });
+            }
+            // A remembered project that no issue names any more falls back to
+            // "All projects" visually; picking anything else overwrites it.
+            const current = this.filters.issueProject ?? "";
+            select.value =
+                current === NO_PROJECT || names.includes(current)
+                    ? current
+                    : "";
+            this.registerDomEvent(select, "change", () => {
+                this.setFilters({ issueProject: select.value || null });
+            });
             this.appendHideDone(toolbar);
             return;
         }
@@ -721,6 +799,26 @@ export class KanbanView extends ItemView {
             if (event.sprint === weekOf(0)) {
                 sprintEl.addClass("ofc-kanban-card-sprint-current");
             }
+        }
+
+        // Which project the card belongs to. Issues carry it in frontmatter
+        // and can name more than one; tasks take it from the source folder
+        // they live in, so the chip is tinted with that source's colour —
+        // the same colour as the card's left stripe, now with a name on it.
+        if (this.boardScope === "issue") {
+            for (const name of cardProjects(event)) {
+                renderProjectChip(
+                    metaEl,
+                    name,
+                    projectColor(this.plugin, name)
+                );
+            }
+        } else {
+            renderProjectChip(
+                metaEl,
+                projectLabel(card.calendarId),
+                card.sourceColor
+            );
         }
 
         // Logged time from work-log sessions vs. the task's estimate.

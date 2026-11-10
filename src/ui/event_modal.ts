@@ -30,6 +30,7 @@ export function launchCreateModal(
         React.createElement(EditEvent, {
             initialEvent: partialEvent,
             calendars,
+            issuesCalendarId: plugin.issuesSourceId(),
             defaultCalendarIndex: defaultIndex === -1 ? 0 : defaultIndex,
             submit: async (data, calendarIndex) => {
                 const calendarId = calendars[calendarIndex].id;
@@ -71,6 +72,7 @@ export function launchEditModal(plugin: FullCalendarPlugin, eventId: string) {
         React.createElement(EditEvent, {
             initialEvent: eventToEdit,
             calendars,
+            issuesCalendarId: plugin.issuesSourceId(),
             defaultCalendarIndex: calIdx,
             submit: async (data, calendarIndex) => {
                 try {

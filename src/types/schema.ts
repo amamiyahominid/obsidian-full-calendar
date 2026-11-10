@@ -112,6 +112,32 @@ export const EventSchema = z.discriminatedUnion("type", [
                     : val ?? undefined,
             z.string().nullable().optional()
         ),
+        // Projects the note is tied to, as wikilinks
+        // (`project:\n  - "[[03_...]]"`). Unlike status and sprint this stays
+        // a list: one issue can feed several projects. A bare string is
+        // wrapped so a hand-written single value works, and link syntax
+        // (`[[...]]`, `|alias`, `#heading`) is stripped so the board can
+        // compare plain note names. Read-only: modifyEvent never writes it
+        // back, so the note keeps whatever link text the user typed.
+        project: z.preprocess((val) => {
+            const raw =
+                val === undefined || val === null
+                    ? []
+                    : Array.isArray(val)
+                    ? val
+                    : [val];
+            const names = raw
+                .filter((v): v is string => typeof v === "string")
+                .map((v) => {
+                    const link = v.match(/^\s*\[\[([^\]]*)\]\]\s*$/);
+                    return (link ? link[1] : v)
+                        .split("|")[0]
+                        .split("#")[0]
+                        .trim();
+                })
+                .filter((v) => v.length > 0);
+            return names.length > 0 ? names : undefined;
+        }, z.array(z.string()).optional()),
         // Optional deadline ("YYYY-MM-DD") — an external constraint, distinct
         // from `sprint` (the week the user plans to work on it). Only present
         // when a real deadline exists; cards render it as a 〆 badge. Same

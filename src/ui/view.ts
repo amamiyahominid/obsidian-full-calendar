@@ -21,9 +21,13 @@ import {
     stopSession,
 } from "src/core/worklog";
 import { renderTaskTray, TaskTray } from "./tray";
+import { MemoPanel, renderMemoPanel } from "./memoPanel";
+import {
+    FULL_CALENDAR_MEMO_VIEW_TYPE,
+    FULL_CALENDAR_TRAY_VIEW_TYPE,
+} from "./panes";
 import { pickTrayTask } from "./taskPicker";
 import { collectTaskCards, FULL_CALENDAR_KANBAN_VIEW_TYPE } from "./kanban";
-import { contrastTextColor, getStatusColor } from "./colors";
 
 export const FULL_CALENDAR_VIEW_TYPE = "full-calendar-view";
 export const FULL_CALENDAR_SIDEBAR_VIEW_TYPE = "full-calendar-sidebar-view";
@@ -76,10 +80,46 @@ export class CalendarView extends ItemView {
     fullCalendarView: Calendar | null = null;
     callback: UpdateViewCallback | null = null;
     taskTray: TaskTray | null = null;
+    // Desktop: the memo column on the calendar's right. (On mobile the
+    // memo lives inside the tray list instead.)
+    memoPanel: MemoPanel | null = null;
+    // The built-in columns (each with its divider). Hidden while the same
+    // thing is open as a pane of its own somewhere in the workspace.
+    private trayColumn: HTMLElement[] = [];
+    private memoColumn: HTMLElement[] = [];
+    private layoutWatchAdded = false;
+
+    /** Show each built-in column only while no standalone pane of its kind
+     * exists. Desktop only: mobile keeps its own calendar/list toggle. */
+    syncPoppedPanels() {
+        if (Platform.isMobile) {
+            return;
+        }
+        const popped = (type: string) =>
+            this.app.workspace.getLeavesOfType(type).length > 0;
+        let changed = false;
+        const apply = (els: HTMLElement[], hide: boolean) => {
+            for (const el of els) {
+                if (el.hasClass("is-popped") !== hide) {
+                    el.toggleClass("is-popped", hide);
+                    changed = true;
+                }
+            }
+        };
+        apply(this.trayColumn, popped(FULL_CALENDAR_TRAY_VIEW_TYPE));
+        apply(this.memoColumn, popped(FULL_CALENDAR_MEMO_VIEW_TYPE));
+        if (changed) {
+            this.fullCalendarView?.updateSize();
+        }
+    }
     // Mobile-only: the header action toggles between the calendar and the
     // task list; these track the current elements across onOpen() re-runs.
     mobileTrayEl: HTMLElement | null = null;
     mobileCalendarEl: HTMLElement | null = null;
+    // Mobile-only: one line above the calendar saying what's left on
+    // today's list; tapping it opens the list.
+    mobileTodayBarEl: HTMLElement | null = null;
+    toggleMobileTray: (() => void) | null = null;
     trayActionAdded = false;
     // onOpen() re-runs on the same view instance (e.g. activateView() calls it
     // on existing leaves), but the header action must only be added once.
@@ -114,7 +154,10 @@ export class CalendarView extends ItemView {
      * A draggable divider that resizes the task tray. The width persists to
      * settings (light save — no cache reset) so it survives restarts.
      */
-    private setupTrayResizer(layoutEl: HTMLElement, trayEl: HTMLElement) {
+    private setupTrayResizer(
+        layoutEl: HTMLElement,
+        trayEl: HTMLElement
+    ): HTMLElement {
         const resizerEl = layoutEl.createDiv({ cls: "ofc-tray-resizer" });
         this.registerDomEvent(resizerEl, "mousedown", (e: MouseEvent) => {
             e.preventDefault();
@@ -141,6 +184,42 @@ export class CalendarView extends ItemView {
             document.addEventListener("mousemove", onMove);
             document.addEventListener("mouseup", onUp);
         });
+        return resizerEl;
+    }
+
+    /** The memo column's divider: it sits on the column's LEFT edge, so
+     * dragging left widens it. */
+    private setupMemoResizer(
+        layoutEl: HTMLElement,
+        memoEl: HTMLElement
+    ): HTMLElement {
+        const resizerEl = layoutEl.createDiv({ cls: "ofc-tray-resizer" });
+        this.registerDomEvent(resizerEl, "mousedown", (e: MouseEvent) => {
+            e.preventDefault();
+            resizerEl.addClass("is-dragging");
+            const startX = e.clientX;
+            const startWidth = memoEl.getBoundingClientRect().width;
+            const onMove = (ev: MouseEvent) => {
+                const width = Math.max(
+                    160,
+                    Math.min(640, startWidth - (ev.clientX - startX))
+                );
+                memoEl.style.width = `${width}px`;
+                this.fullCalendarView?.updateSize();
+            };
+            const onUp = async () => {
+                document.removeEventListener("mousemove", onMove);
+                document.removeEventListener("mouseup", onUp);
+                resizerEl.removeClass("is-dragging");
+                this.plugin.settings.memoWidth = Math.round(
+                    memoEl.getBoundingClientRect().width
+                );
+                await this.plugin.saveTrayWidth();
+            };
+            document.addEventListener("mousemove", onMove);
+            document.addEventListener("mouseup", onUp);
+        });
+        return resizerEl;
     }
 
     /**
@@ -243,20 +322,20 @@ export class CalendarView extends ItemView {
         }
         const link = firstLinktext(input.title ?? "");
         const look = link ? looks.get(link) : undefined;
-        if (!look) {
+        if (!look || !look.sourceColor) {
+            // Not a task: a hand (or free text). All of these share one
+            // strong colour — the theme's accent — whatever pale colour
+            // the work-log calendar itself is set to.
+            input.classNames = [
+                ...(Array.isArray(input.classNames) ? input.classNames : []),
+                "ofc-event-hand",
+            ];
             return input;
         }
-        const fill =
-            (look.status && getStatusColor(look.status)) ||
-            look.sourceColor ||
-            null;
-        if (fill) {
-            input.backgroundColor = fill;
-            input.textColor = contrastTextColor(fill);
-        }
-        if (look.sourceColor) {
-            input.borderColor = look.sourceColor;
-        }
+        // The project's colour, and only that: the event mount hook turns
+        // it into a tint and a bar (see calendar.ts). Status isn't painted.
+        input.backgroundColor = look.sourceColor;
+        input.borderColor = look.sourceColor;
         return input;
     }
 
@@ -340,6 +419,8 @@ export class CalendarView extends ItemView {
         if (Platform.isMobile) {
             layoutEl.addClass("ofc-calendar-layout-mobile");
         }
+        this.trayColumn = [];
+        this.memoColumn = [];
         const trayEl = !this.inSidebar
             ? layoutEl.createDiv({ cls: "ofc-task-tray" })
             : null;
@@ -348,28 +429,68 @@ export class CalendarView extends ItemView {
                 trayEl.addClass("ofc-task-tray-mobile-list", "is-hidden");
             } else {
                 trayEl.style.width = `${this.plugin.settings.trayWidth}px`;
-                this.setupTrayResizer(layoutEl, trayEl);
+                this.trayColumn = [
+                    trayEl,
+                    this.setupTrayResizer(layoutEl, trayEl),
+                ];
             }
         }
+        const todayBarEl =
+            trayEl && Platform.isMobile
+                ? layoutEl.createDiv({ cls: "ofc-today-bar" })
+                : null;
         let calendarEl = layoutEl.createDiv({ cls: "ofc-calendar-main" });
+        // Memo column, right of the calendar. A long memo scrolls on its
+        // own there instead of pushing the week's tasks out of the tray.
+        this.memoPanel?.destroy();
+        this.memoPanel = null;
+        if (trayEl && !Platform.isMobile) {
+            const memoEl = createDiv({ cls: "ofc-memo-pane" });
+            memoEl.style.width = `${this.plugin.settings.memoWidth ?? 300}px`;
+            this.memoColumn = [this.setupMemoResizer(layoutEl, memoEl), memoEl];
+            layoutEl.appendChild(memoEl);
+            this.memoPanel = renderMemoPanel(this.plugin, memoEl, {
+                onPopOut: () =>
+                    this.plugin.openPane(FULL_CALENDAR_MEMO_VIEW_TYPE),
+            });
+        }
+        if (!this.layoutWatchAdded) {
+            this.layoutWatchAdded = true;
+            this.registerEvent(
+                this.app.workspace.on("layout-change", () =>
+                    this.syncPoppedPanels()
+                )
+            );
+        }
         this.mobileTrayEl = Platform.isMobile ? trayEl : null;
         this.mobileCalendarEl = Platform.isMobile ? calendarEl : null;
+        this.mobileTodayBarEl = todayBarEl;
+        const toggleMobileTray = () => {
+            const tray = this.mobileTrayEl;
+            const cal = this.mobileCalendarEl;
+            if (!tray || !cal) {
+                return;
+            }
+            const show = tray.hasClass("is-hidden");
+            tray.toggleClass("is-hidden", !show);
+            cal.toggleClass("is-hidden", show);
+            this.mobileTodayBarEl?.toggleClass("is-hidden", show);
+            if (!show) {
+                this.fullCalendarView?.updateSize();
+            }
+        };
+        this.toggleMobileTray = toggleMobileTray;
+        if (todayBarEl) {
+            todayBarEl.onclick = toggleMobileTray;
+        }
 
         if (!this.trayActionAdded && trayEl && Platform.isMobile) {
             this.trayActionAdded = true;
-            this.addAction("list-checks", "This week's tasks", () => {
-                const tray = this.mobileTrayEl;
-                const cal = this.mobileCalendarEl;
-                if (!tray || !cal) {
-                    return;
-                }
-                const show = tray.hasClass("is-hidden");
-                tray.toggleClass("is-hidden", !show);
-                cal.toggleClass("is-hidden", show);
-                if (!show) {
-                    this.fullCalendarView?.updateSize();
-                }
-            });
+            // Through `this`: the action outlives re-renders, the elements
+            // (and the closure above) don't.
+            this.addAction("list-checks", "Today and this week", () =>
+                this.toggleMobileTray?.()
+            );
         }
 
         const sources: EventSourceInput[] = this.translateSources();
@@ -624,8 +745,35 @@ export class CalendarView extends ItemView {
         this.taskTray = trayEl
             ? renderTaskTray(this.plugin, trayEl, {
                   draggable: !Platform.isMobile,
+                  memo: Platform.isMobile,
+                  onPopOut: Platform.isMobile
+                      ? undefined
+                      : () =>
+                            this.plugin.openPane(FULL_CALENDAR_TRAY_VIEW_TYPE),
+                  onToday: ({ open, first }) => {
+                      const bar = this.mobileTodayBarEl;
+                      if (!bar) {
+                          return;
+                      }
+                      bar.empty();
+                      bar.createSpan({
+                          cls: "ofc-today-bar-title",
+                          text: "今日",
+                      });
+                      bar.createSpan({
+                          cls: "ofc-today-bar-text",
+                          text:
+                              open === 0 || !first
+                                  ? "残りなし"
+                                  : open === 1
+                                  ? `残り1件：${first}`
+                                  : `残り${open}件：${first} ほか`,
+                      });
+                  },
               })
             : null;
+
+        this.syncPoppedPanels();
 
         if (!this.growIntervalAdded) {
             this.growIntervalAdded = true;
@@ -767,5 +915,7 @@ export class CalendarView extends ItemView {
         }
         this.taskTray?.destroy();
         this.taskTray = null;
+        this.memoPanel?.destroy();
+        this.memoPanel = null;
     }
 }

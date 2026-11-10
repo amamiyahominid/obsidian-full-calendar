@@ -34,10 +34,15 @@ const DayChoice = ({ code, label, isSelected, onClick }: DayChoiceProps) => (
             marginLeft: "0.25rem",
             marginRight: "0.25rem",
             padding: "0",
+            // Unselected days are outlined, not filled: `--interactive-normal`
+            // is the same grey the palette uses for disabled surfaces.
             backgroundColor: isSelected
                 ? "var(--interactive-accent)"
-                : "var(--interactive-normal)",
+                : "transparent",
             color: isSelected ? "var(--text-on-accent)" : "var(--text-normal)",
+            borderColor: isSelected
+                ? "var(--interactive-accent)"
+                : "var(--background-modifier-border)",
             borderStyle: "solid",
             borderWidth: "1px",
             borderRadius: "50%",
@@ -188,6 +193,9 @@ interface EditEventProps {
         todos?: boolean;
     }[];
     defaultCalendarIndex: number;
+    // The issues folder's calendar id, when one is configured. Used to keep
+    // issues and project tasks from being moved into each other.
+    issuesCalendarId?: string | null;
     initialEvent?: Partial<OFCEvent>;
     open?: () => Promise<void>;
     deleteEvent?: () => Promise<void>;
@@ -200,6 +208,7 @@ export const EditEvent = ({
     deleteEvent,
     calendars,
     defaultCalendarIndex,
+    issuesCalendarId,
 }: EditEventProps) => {
     const [date, setDate] = useState(
         initialEvent
@@ -276,13 +285,30 @@ export const EditEvent = ({
                 initialEvent.completed !== null) ||
                 initialEvent.status !== undefined)
         );
+    // The event's current home decides what it may be moved to. Crossing
+    // between the issues folder and a project's tasks folder isn't a move,
+    // it's a conversion — a question would become a task on save — so the
+    // two kinds never appear in the same list.
+    const isIssueHome =
+        !!issuesCalendarId &&
+        calendars[defaultCalendarIndex]?.id === issuesCalendarId;
     const selectableCalendars = calendars
         .map((cal, idx) => ({ cal, idx }))
-        .filter(({ cal }) =>
-            dailyOnly
-                ? cal.type === "dailynote"
-                : cal.type === "local" || cal.type === "dailynote"
-        );
+        .filter(({ cal }) => {
+            if (dailyOnly) {
+                return cal.type === "dailynote";
+            }
+            // An issue has exactly one home, which leaves nothing to pick;
+            // the picker hides itself below when only one option remains.
+            if (isIssueHome) {
+                return cal.id === issuesCalendarId;
+            }
+            // And nothing else may be filed into the issues folder.
+            if (issuesCalendarId && cal.id === issuesCalendarId) {
+                return false;
+            }
+            return cal.type === "local" || cal.type === "dailynote";
+        });
 
     const [calendarIndex, setCalendarIndex] = useState(() => {
         if (
@@ -474,7 +500,11 @@ export const EditEvent = ({
         <>
             <div>
                 <p style={{ float: "right" }}>
-                    {open && <button onClick={open}>Open Note</button>}
+                    {open && (
+                        <button className="ofc-modal-secondary" onClick={open}>
+                            Open Note
+                        </button>
+                    )}
                 </p>
             </div>
 
@@ -490,32 +520,34 @@ export const EditEvent = ({
                         onChange={makeChangeListener(setTitle, (x) => x)}
                     />
                 </p>
-                <p>
-                    <select
-                        id="calendar"
-                        value={calendarIndex}
-                        onChange={makeChangeListener(
-                            setCalendarIndex,
-                            parseInt
-                        )}
-                    >
-                        {selectableCalendars.map(({ cal, idx }) => (
-                            <option
-                                key={idx}
-                                value={idx}
-                                disabled={
-                                    !(
-                                        initialEvent?.title === undefined ||
-                                        calendars[calendarIndex].type ===
-                                            cal.type
-                                    )
-                                }
-                            >
-                                {cal.name}
-                            </option>
-                        ))}
-                    </select>
-                </p>
+                {selectableCalendars.length > 1 && (
+                    <p>
+                        <select
+                            id="calendar"
+                            value={calendarIndex}
+                            onChange={makeChangeListener(
+                                setCalendarIndex,
+                                parseInt
+                            )}
+                        >
+                            {selectableCalendars.map(({ cal, idx }) => (
+                                <option
+                                    key={idx}
+                                    value={idx}
+                                    disabled={
+                                        !(
+                                            initialEvent?.title === undefined ||
+                                            calendars[calendarIndex].type ===
+                                                cal.type
+                                        )
+                                    }
+                                >
+                                    {cal.name}
+                                </option>
+                            ))}
+                        </select>
+                    </p>
+                )}
                 {!isWorkflowTaskTarget && (
                     <p>
                         {!isRecurring && (
@@ -740,20 +772,14 @@ export const EditEvent = ({
                         width: "100%",
                     }}
                 >
-                    <button type="submit"> Save Event </button>
+                    <button type="submit" className="mod-cta">
+                        Save Event
+                    </button>
                     <span>
                         {deleteEvent && (
                             <button
                                 type="button"
-                                style={{
-                                    backgroundColor:
-                                        "var(--interactive-normal)",
-                                    color: "var(--background-modifier-error)",
-                                    borderColor:
-                                        "var(--background-modifier-error)",
-                                    borderWidth: "1px",
-                                    borderStyle: "solid",
-                                }}
+                                className="ofc-modal-danger"
                                 onClick={deleteEvent}
                             >
                                 Delete Event

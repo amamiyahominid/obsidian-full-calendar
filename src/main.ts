@@ -5,6 +5,12 @@ import {
     FULL_CALENDAR_VIEW_TYPE,
 } from "./ui/view";
 import { KanbanView, FULL_CALENDAR_KANBAN_VIEW_TYPE } from "./ui/kanban";
+import {
+    FULL_CALENDAR_MEMO_VIEW_TYPE,
+    FULL_CALENDAR_TRAY_VIEW_TYPE,
+    MemoView,
+    TrayView,
+} from "./ui/panes";
 import { renderCalendar } from "./ui/calendar";
 import { toEventInput } from "./ui/interop";
 import {
@@ -104,6 +110,47 @@ export default class FullCalendarPlugin extends Plugin {
             );
         }
     }
+    /**
+     * Open the tray or the memo as a pane of its own (or reveal the one
+     * already open). It starts in a sidebar — tray left, memo right — and
+     * can be dragged anywhere from there.
+     */
+    async openPane(
+        type:
+            | typeof FULL_CALENDAR_TRAY_VIEW_TYPE
+            | typeof FULL_CALENDAR_MEMO_VIEW_TYPE
+    ) {
+        const { workspace } = this.app;
+        const existing = workspace.getLeavesOfType(type);
+        if (existing.length > 0) {
+            workspace.revealLeaf(existing[0]);
+            return;
+        }
+        const leaf =
+            type === FULL_CALENDAR_TRAY_VIEW_TYPE
+                ? workspace.getLeftLeaf(false)
+                : workspace.getRightLeaf(false);
+        await leaf.setViewState({ type, active: true });
+        workspace.revealLeaf(leaf);
+    }
+
+    /**
+     * Close the tray or memo pane so the calendar shows its built-in column
+     * again. The calendar also notices on its own (layout-change), but that
+     * event isn't guaranteed to follow a detach right away — tell it.
+     */
+    returnPane(
+        type:
+            | typeof FULL_CALENDAR_TRAY_VIEW_TYPE
+            | typeof FULL_CALENDAR_MEMO_VIEW_TYPE
+    ) {
+        const { workspace } = this.app;
+        workspace.detachLeavesOfType(type);
+        for (const leaf of workspace.getLeavesOfType(FULL_CALENDAR_VIEW_TYPE)) {
+            (leaf.view as CalendarView).syncPoppedPanels?.();
+        }
+    }
+
     async activateKanbanView() {
         const leaves = this.app.workspace.getLeavesOfType(
             FULL_CALENDAR_KANBAN_VIEW_TYPE
@@ -245,6 +292,16 @@ export default class FullCalendarPlugin extends Plugin {
             (leaf) => new KanbanView(leaf, this)
         );
 
+        this.registerView(
+            FULL_CALENDAR_TRAY_VIEW_TYPE,
+            (leaf) => new TrayView(leaf, this)
+        );
+
+        this.registerView(
+            FULL_CALENDAR_MEMO_VIEW_TYPE,
+            (leaf) => new MemoView(leaf, this)
+        );
+
         this.addRibbonIcon(
             "calendar-glyph",
             "Open Full Calendar",
@@ -320,6 +377,30 @@ export default class FullCalendarPlugin extends Plugin {
         });
 
         this.addCommand({
+            id: "full-calendar-open-tray-pane",
+            name: "Open today and this week as a pane",
+            callback: () => this.openPane(FULL_CALENDAR_TRAY_VIEW_TYPE),
+        });
+
+        this.addCommand({
+            id: "full-calendar-open-memo-pane",
+            name: "Open memo as a pane",
+            callback: () => this.openPane(FULL_CALENDAR_MEMO_VIEW_TYPE),
+        });
+
+        this.addCommand({
+            id: "full-calendar-return-tray-pane",
+            name: "Return today and this week to the calendar",
+            callback: () => this.returnPane(FULL_CALENDAR_TRAY_VIEW_TYPE),
+        });
+
+        this.addCommand({
+            id: "full-calendar-return-memo-pane",
+            name: "Return memo to the calendar",
+            callback: () => this.returnPane(FULL_CALENDAR_MEMO_VIEW_TYPE),
+        });
+
+        this.addCommand({
             id: "full-calendar-open-sidebar",
             name: "Open in sidebar",
             callback: () => {
@@ -354,6 +435,8 @@ export default class FullCalendarPlugin extends Plugin {
         this.app.workspace.detachLeavesOfType(FULL_CALENDAR_VIEW_TYPE);
         this.app.workspace.detachLeavesOfType(FULL_CALENDAR_SIDEBAR_VIEW_TYPE);
         this.app.workspace.detachLeavesOfType(FULL_CALENDAR_KANBAN_VIEW_TYPE);
+        this.app.workspace.detachLeavesOfType(FULL_CALENDAR_TRAY_VIEW_TYPE);
+        this.app.workspace.detachLeavesOfType(FULL_CALENDAR_MEMO_VIEW_TYPE);
     }
 
     async loadSettings() {
