@@ -779,10 +779,34 @@ export function renderTaskTray(
                 renderCard(todayEl, card, link, todo);
                 continue;
             }
+            // A line that isn't a task — a hand, or plain words — can be
+            // worked on just the same. Its session is logged under the
+            // line's own text, so a hand named in it is what the hours
+            // count towards; the running one is found by that same text.
+            const todoSession = running.find(
+                (r) =>
+                    r.event.date === today &&
+                    r.event.title.trim() === todo.title.trim()
+            );
             const { el: row } = renderRow(todayEl, {
                 cls: ["ofc-tray-todo"],
                 title: plainTitle(todo.title),
                 done: todo.done,
+                running: !!todoSession,
+                buttons: todo.done
+                    ? []
+                    : [
+                          {
+                              icon: todoSession ? "square" : "play",
+                              label: todoSession
+                                  ? "Stop session"
+                                  : "Start working now",
+                              onClick: () =>
+                                  todoSession
+                                      ? stopSession(plugin, todoSession)
+                                      : startSession(plugin, todo.title),
+                          },
+                      ],
                 check: {
                     checked: todo.done,
                     label: todo.done ? "Mark not done" : "Mark done",
@@ -792,6 +816,9 @@ export function renderTaskTray(
                         ),
                 },
                 meta: (metaEl) => {
+                    if (todoSession) {
+                        metaPart(metaEl, `● ${todoSession.event.startTime} -`);
+                    }
                     if (todo.date < today) {
                         metaPart(metaEl, shortDate(todo.date), "ofc-row-stale");
                     }
