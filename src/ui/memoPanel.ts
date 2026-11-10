@@ -1,4 +1,5 @@
-import { MarkdownRenderer, Notice, setIcon } from "obsidian";
+import { MarkdownRenderer, Notice, setIcon, TFile } from "obsidian";
+import { createEmbeddedEditor, EmbeddedEditor } from "./embeddedEditor";
 import type FullCalendarPlugin from "../main";
 import {
     memoForDisplay,
@@ -27,6 +28,162 @@ type Edit = {
     saved: string;
     text: string;
 };
+
+/**
+ * The memo as an always-open editor. Text is saved a moment after the
+ * typing pauses and when the editor loses focus; a change made in the note
+ * itself (or synced in) is shown as soon as the editor isn't being typed in.
+ */
+function mountMemoPage(
+    plugin: FullCalendarPlugin,
+    view: HTMLElement,
+    openBtn: HTMLElement
+): MemoPanel | null {
+    let path: string | null = todayNotePath();
+    const file = () => {
+        const f = path ? plugin.app.vault.getAbstractFileByPath(path) : null;
+        return f instanceof TFile ? f : null;
+    };
+    const editor: EmbeddedEditor | null = createEmbeddedEditor(
+        plugin.app,
+        plugin,
+        view,
+        file
+    );
+    if (!editor) {
+        return null;
+    }
+    view.addClass("ofc-memo-page");
+
+    // The memo as the note last had it (what a save checks against), and
+    // the editor's text at the last save or load.
+    let original = "";
+    let saved = "";
+    let warned = false;
+    let saving: Promise<void> = Promise.resolve();
+
+    openBtn.onclick = (ev) => {
+        ev.stopPropagation();
+        if (path) {
+            plugin.app.workspace.openLinkText(path, "", "tab");
+        }
+    };
+
+    const load = async () => {
+        try {
+            const memo = await readTodayMemo(plugin);
+            path = memo.path;
+            openBtn.toggle(!!path);
+            // Never pull the page out from under someone typing on it, or
+            // over text that hasn't been saved yet.
+            if (editor.hasFocus() || editor.get() !== saved) {
+                return;
+            }
+            original = memo.body;
+            saved = memo.body;
+            editor.set(memo.body);
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
+    const save = () => {
+        saving = saving.then(async () => {
+            const text = editor.get();
+            if (text === saved) {
+                return;
+            }
+            let now: string | null = null;
+            try {
+                now = await saveTodayMemo(plugin, original, text);
+            } catch (e) {
+                console.error(e);
+            }
+            if (now === null) {
+                // Nothing was written; the text stays on the page so it
+                // can be copied out.
+                if (!warned) {
+                    warned = true;
+                    new Notice(
+                        "メモは保存していません。daily の側でメモが書き換わっています。"
+                    );
+                }
+                return;
+            }
+            warned = false;
+            original = now;
+            saved = text;
+            path = todayNotePath();
+            openBtn.toggle(!!path);
+        });
+        return saving;
+    };
+
+    // Typing is noticed by looking, not by hooking the editor: a check
+    // twice a second while the page has focus, saving once the text has
+    // stopped changing for a beat. Crude, and independent of the editor's
+    // internals.
+    let lastSeen = "";
+    let still = 0;
+    const tick = window.setInterval(() => {
+        if (!editor.hasFocus()) {
+            return;
+        }
+        const text = editor.get();
+        if (text !== lastSeen) {
+            lastSeen = text;
+            still = 0;
+            return;
+        }
+        if (text !== saved && ++still >= 1) {
+            save();
+        }
+    }, 500);
+    const onBlur = () => {
+        // focusout fires before the new focus lands; look after it has.
+        window.setTimeout(async () => {
+            if (!editor.hasFocus()) {
+                await save();
+                load();
+            }
+        }, 0);
+    };
+    view.addEventListener("focusout", onBlur);
+
+    let timer: number | null = null;
+    const onChange = (f: { path: string }) => {
+        if (f.path !== todayNotePath()) {
+            return;
+        }
+        if (timer !== null) {
+            window.clearTimeout(timer);
+        }
+        timer = window.setTimeout(() => {
+            timer = null;
+            load();
+        }, 150);
+    };
+    const refs = [
+        plugin.app.vault.on("modify", onChange),
+        plugin.app.vault.on("create", onChange),
+    ];
+
+    load();
+    return {
+        reload: () => {
+            load();
+        },
+        destroy: () => {
+            window.clearInterval(tick);
+            view.removeEventListener("focusout", onBlur);
+            refs.forEach((r) => plugin.app.vault.offref(r));
+            if (timer !== null) {
+                window.clearTimeout(timer);
+            }
+            editor.destroy();
+        },
+    };
+}
 
 export function renderMemoPanel(
     plugin: FullCalendarPlugin,
@@ -65,6 +222,15 @@ export function renderMemoPanel(
     setIcon(openBtn, "external-link");
     openBtn.setAttr("aria-label", "daily を開く");
     const view = el.createDiv({ cls: "ofc-tray-memo-body" });
+
+    // First choice: Obsidian's own editor, always open on today's memo —
+    // a page to write on, not a field to click into. When that can't be
+    // mounted (it rests on Obsidian internals), the rest of this function
+    // is the fallback: the memo rendered, and a plain field on click.
+    const page = mountMemoPage(plugin, view, openBtn);
+    if (page) {
+        return page;
+    }
 
     let edit: Edit | null = null;
     let shown: { body: string; path: string | null } = {

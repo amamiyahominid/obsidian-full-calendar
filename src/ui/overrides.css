@@ -1063,3 +1063,33 @@ textarea.ofc-tray-memo-editor:focus {
     color: var(--color-green);
     font-weight: 600;
 }
+
+/* ---- Memo as a page: Obsidian's own editor, always open ---- */
+
+.ofc-tray-memo-body.ofc-memo-page {
+    cursor: auto;
+    min-height: 8em;
+}
+
+/* The editor brings its own page padding and width limit, meant for a full
+   note pane; in a side column the text should use the column. */
+.ofc-memo-page .cm-editor {
+    font-size: inherit;
+}
+
+.ofc-memo-page .cm-scroller {
+    padding: 0;
+    overflow: visible;
+}
+
+.ofc-memo-page .cm-sizer,
+.ofc-memo-page .cm-contentContainer,
+.ofc-memo-page .cm-content {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+}
+
+.ofc-memo-page .cm-editor.cm-focused {
+    outline: none;
+}
