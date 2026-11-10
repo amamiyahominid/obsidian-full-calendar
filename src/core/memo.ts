@@ -1,11 +1,6 @@
-import { TFile } from "obsidian";
-import moment from "moment";
-import {
-    createDailyNote,
-    getAllDailyNotes,
-    getDailyNote,
-} from "obsidian-daily-notes-interface";
+import type { TFile } from "obsidian";
 import type FullCalendarPlugin from "../main";
+import { dailyFile, ensureDaily, todayISO } from "./dailyService";
 
 /*
  * Quick memo capture: one line typed in the tray lands as a bullet under
@@ -201,8 +196,8 @@ export function memoForDisplay(body: string): string {
     return out.join("\n");
 }
 
-function todayNote(): TFile | null {
-    return (getDailyNote(moment(), getAllDailyNotes()) as TFile) ?? null;
+function todayNote(plugin: FullCalendarPlugin): TFile | null {
+    return dailyFile(plugin.io, todayISO());
 }
 
 /** Today's memo section and the note it lives in; empty when the daily
@@ -210,19 +205,19 @@ function todayNote(): TFile | null {
 export async function readTodayMemo(
     plugin: FullCalendarPlugin
 ): Promise<{ body: string; path: string | null }> {
-    const file = todayNote();
+    const file = todayNote(plugin);
     if (!file) {
         return { body: "", path: null };
     }
     return {
-        body: memoBody(await plugin.app.vault.cachedRead(file)),
+        body: memoBody(await plugin.io.read(file)),
         path: file.path,
     };
 }
 
 /** Path of today's daily note, or null when it doesn't exist yet. */
-export function todayNotePath(): string | null {
-    return todayNote()?.path ?? null;
+export function todayNotePath(plugin: FullCalendarPlugin): string | null {
+    return todayNote(plugin)?.path ?? null;
 }
 
 /**
@@ -237,14 +232,14 @@ export async function saveTodayMemo(
     original: string,
     body: string
 ): Promise<string | null> {
-    const file = todayNote() ?? ((await createDailyNote(moment())) as TFile);
-    const page = await plugin.app.vault.read(file);
+    const file = await ensureDaily(plugin.io, todayISO());
+    const page = await plugin.io.read(file);
     if (memoBody(page) !== original) {
         return null;
     }
     const next = replaceMemoBody(page, body);
     if (next !== page) {
-        await plugin.app.vault.modify(file, next);
+        await plugin.io.rewrite(file, () => next);
     }
     return memoBody(next);
 }

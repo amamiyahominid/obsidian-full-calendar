@@ -1,4 +1,4 @@
-import { Notice } from "obsidian";
+import { notify } from "./notify";
 import { DateTime } from "luxon";
 import type FullCalendarPlugin from "../main";
 import DailyNoteCalendar from "../calendars/DailyNoteCalendar";
@@ -129,7 +129,7 @@ export async function addTaskToToday(
 ): Promise<void> {
     const calendarId = todoCalendarId(plugin);
     if (!calendarId) {
-        new Notice(
+        notify(
             'No TODO calendar configured. Add a "Daily Note" calendar with TODOs enabled in the Full Calendar settings.'
         );
         return;
@@ -160,7 +160,7 @@ export async function addTaskToToday(
     } catch (e) {
         if (e instanceof Error) {
             console.error(e);
-            new Notice(e.message);
+            notify(e.message);
         }
     }
 }

@@ -1,14 +1,12 @@
-import moment from "moment";
 import { TFile } from "obsidian";
-import {
-    appHasDailyNotesPluginLoaded,
-    createDailyNote,
-    getAllDailyNotes,
-    getDailyNote,
-    getDailyNoteSettings,
-    getDateFromFile,
-} from "obsidian-daily-notes-interface";
 import { EventPathLocation } from "../core/EventStore";
+import {
+    allDailyFiles,
+    dailyFile,
+    dateOfFile,
+    ensureDaily,
+    getDailySettings,
+} from "../core/dailyService";
 import {
     blockIdFromEventId,
     blockIdOf,
@@ -349,7 +347,6 @@ export default class DailyNoteCalendar extends EditableCalendar {
         todos: boolean = false
     ) {
         super(color);
-        appHasDailyNotesPluginLoaded();
         this.app = app;
         this.heading = heading;
         this.todos = todos;
@@ -367,16 +364,11 @@ export default class DailyNoteCalendar extends EditableCalendar {
             : `Daily note under "${this.heading}"`;
     }
     get directory(): string {
-        const { folder } = getDailyNoteSettings();
-        if (!folder) {
-            throw new Error("Could not load daily note settings.");
-        }
-        return folder;
+        return getDailySettings().folder;
     }
 
     async getEventsInFile(file: TFile): Promise<EditableEventResponse[]> {
-        // @ts-ignore
-        const date = getDateFromFile(file, "day")?.format(DATE_FORMAT);
+        const date = dateOfFile(file);
         if (!date) {
             return [];
         }
@@ -404,8 +396,8 @@ export default class DailyNoteCalendar extends EditableCalendar {
     }
 
     async getEvents(): Promise<EventResponse[]> {
-        const notes = getAllDailyNotes();
-        const files = Object.values(notes) as TFile[];
+        const notes = allDailyFiles(this.app);
+        const files = notes;
         return (
             await Promise.all(files.map((f) => this.getEventsInFile(f)))
         ).flat();
@@ -419,13 +411,12 @@ export default class DailyNoteCalendar extends EditableCalendar {
             );
             throw new Error("Cannot create a recurring event in a daily note.");
         }
-        const m = moment(event.date);
-        let file = getDailyNote(m, getAllDailyNotes()) as TFile;
-        if (!file) {
-            file = (await createDailyNote(m)) as TFile;
+        if (!event.date) {
+            throw new Error("A daily note event needs a date.");
         }
+        const file = await ensureDaily(this.app, event.date);
 
-        const date = m.format(DATE_FORMAT);
+        const date = event.date;
         if (this.todos && !this.heading) {
             let lineNumber = await this.app.rewrite(file, (contents) => {
                 const item = this.named(
@@ -608,9 +599,7 @@ export default class DailyNoteCalendar extends EditableCalendar {
             );
         }
         const { file, lineNumber } = this.getConcreteLocation(loc);
-        const oldDate = getDateFromFile(file as any, "day")?.format(
-            DATE_FORMAT
-        );
+        const oldDate = dateOfFile(file);
         if (!oldDate) {
             throw new Error(
                 `Could not get date from file at path ${file.path}`
@@ -620,11 +609,10 @@ export default class DailyNoteCalendar extends EditableCalendar {
             // Event needs to be moved to a new file.
             console.debug("daily note event moving to a new file.");
             // TODO: Factor this out with the createFile path.
-            const m = moment(newEvent.date);
-            let newFile = getDailyNote(m, getAllDailyNotes()) as TFile;
-            if (!newFile) {
-                newFile = (await createDailyNote(m)) as TFile;
+            if (!newEvent.date) {
+                throw new Error("A daily note event needs a date.");
             }
+            const newFile = await ensureDaily(this.app, newEvent.date);
             // The target note may have JUST been created — wait for its
             // metadata instead of racing the cache and appending a duplicate
             // heading at the end of the file.

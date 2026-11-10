@@ -105,7 +105,7 @@ export async function pickTrayTask(
     date: string
 ): Promise<string | null> {
     const hands: PickableItem[] = (
-        await termHandsFor(plugin.app, plugin.settings.termFolder || "", date)
+        await termHandsFor(plugin.io, plugin.settings.termFolder || "", date)
     ).map((hand) => ({ label: hand.name, title: hand.title, group: 0 }));
     const tasks: PickableItem[] = [];
     for (const card of trayCards(plugin)) {

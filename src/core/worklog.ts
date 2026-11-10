@@ -1,4 +1,4 @@
-import { Notice } from "obsidian";
+import { notify } from "./notify";
 import { DateTime } from "luxon";
 import DailyNoteCalendar from "../calendars/DailyNoteCalendar";
 import { OFCEvent } from "../types";
@@ -84,7 +84,7 @@ export async function createSession(
         (ahead ? getPlanCalendarId(plugin) : null) ??
         getWorklogCalendarId(plugin);
     if (!calendarId) {
-        new Notice(
+        notify(
             'No work-log calendar configured. Add a "Daily Note" calendar in the Full Calendar settings — sessions are written under its heading.'
         );
         return false;
@@ -117,7 +117,7 @@ export async function createSession(
     } catch (e) {
         if (e instanceof Error) {
             console.error(e);
-            new Notice(e.message);
+            notify(e.message);
         }
         return false;
     }
@@ -242,7 +242,7 @@ export async function stopSession(
         } catch (e) {
             if (e instanceof Error) {
                 console.error(e);
-                new Notice(e.message);
+                notify(e.message);
             }
             return false;
         }
@@ -256,7 +256,7 @@ export async function stopSession(
     } catch (e) {
         if (e instanceof Error) {
             console.error(e);
-            new Notice(e.message);
+            notify(e.message);
         }
         return false;
     }
@@ -319,7 +319,7 @@ export async function startSessionFromBlock(
         } catch (e) {
             if (e instanceof Error) {
                 console.error(e);
-                new Notice(e.message);
+                notify(e.message);
             }
             return false;
         }
@@ -337,7 +337,7 @@ export async function startSessionFromBlock(
     } catch (e) {
         if (e instanceof Error) {
             console.error(e);
-            new Notice(e.message);
+            notify(e.message);
         }
         return false;
     }
@@ -357,7 +357,7 @@ export async function startSession(
     }
     const calendarId = getWorklogCalendarId(plugin);
     if (!calendarId) {
-        new Notice(
+        notify(
             'No work-log calendar configured. Add a "Daily Note" calendar in the Full Calendar settings — sessions are written under its heading.'
         );
         return false;
@@ -377,7 +377,7 @@ export async function startSession(
     } catch (e) {
         if (e instanceof Error) {
             console.error(e);
-            new Notice(e.message);
+            notify(e.message);
         }
         return false;
     }

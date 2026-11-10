@@ -1,13 +1,8 @@
-import { TFile } from "obsidian";
+import type { TFile } from "obsidian";
 import { DateTime } from "luxon";
-import moment from "moment";
-import {
-    createDailyNote,
-    getAllDailyNotes,
-    getDailyNote,
-} from "obsidian-daily-notes-interface";
 import DailyNoteCalendar from "../calendars/DailyNoteCalendar";
 import type FullCalendarPlugin from "../main";
+import { dailyFile, ensureDaily, todayISO } from "./dailyService";
 
 /*
  * Plugin-owned TODO rollover.
@@ -146,9 +141,9 @@ export async function rollTodosForward(
     // holds — unchecked (already rolled) AND checked. A TODO completed today
     // must not resurrect from a stale unchecked copy in a past note.
     const seen = new Set<string>();
-    let todayFile = getDailyNote(moment(), getAllDailyNotes()) as TFile;
+    let todayFile = dailyFile(plugin.io, todayISO()) as TFile;
     if (todayFile) {
-        const contents = await plugin.app.vault.read(todayFile);
+        const contents = await plugin.io.read(todayFile);
         for (const line of contents.split("\n")) {
             if (ANY_CHECKBOX_RE.test(line)) {
                 seen.add(todoKey(line));
@@ -161,12 +156,12 @@ export async function rollTodosForward(
     const movedLines: string[] = [];
     const paths = [...byPath.keys()].sort();
     for (const path of paths) {
-        const file = plugin.app.vault.getAbstractFileByPath(path);
-        if (!(file instanceof TFile)) {
+        const file = plugin.io.getFileByPath(path);
+        if (!file) {
             continue;
         }
         const lineNumbers = byPath.get(path)!;
-        const contents = await plugin.app.vault.read(file);
+        const contents = await plugin.io.read(file);
         const lines = contents.split("\n");
         // Validate ascending (collection order), remove descending (so line
         // numbers stay valid mid-splice).
@@ -188,7 +183,7 @@ export async function rollTodosForward(
             for (const n of confirmed.sort((a, b) => b - a)) {
                 lines.splice(n, 1);
             }
-            await plugin.app.vault.modify(file, lines.join("\n"));
+            await plugin.io.rewrite(file, () => lines.join("\n"));
         }
     }
     if (movedLines.length === 0) {
@@ -196,11 +191,10 @@ export async function rollTodosForward(
     }
 
     if (!todayFile) {
-        todayFile = (await createDailyNote(moment())) as TFile;
+        todayFile = await ensureDaily(plugin.io, todayISO());
     }
-    const todayContents = await plugin.app.vault.read(todayFile);
-    await plugin.app.vault.modify(
-        todayFile,
+    const todayContents = await plugin.io.read(todayFile);
+    await plugin.io.rewrite(todayFile, () =>
         appendTodosUnderHeading(todayContents, cal.heading, movedLines)
     );
     return movedLines.length;

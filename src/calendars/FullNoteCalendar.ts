@@ -1,4 +1,4 @@
-import { TFile, TFolder, parseYaml } from "obsidian";
+import { TFile, TFolder } from "obsidian";
 import equal from "deep-equal";
 import { rrulestr } from "rrule";
 import { EventPathLocation } from "../core/EventStore";
@@ -181,16 +181,21 @@ export function modifyFrontmatterString(
             }
             skipIndented = false;
 
-            const obj: Record<any, any> | null = parseYaml(line);
-            if (!obj) {
+            // The key a top-level line sets. Read straight off the line —
+            // no YAML parser needed for "key: …" — so this works in any
+            // host. Blank lines are dropped; anything else that isn't a
+            // key line (a comment) is kept as it is.
+            if (line.trim() === "") {
                 continue;
             }
-
-            const keys = Object.keys(obj) as [keyof OFCEvent];
-            if (keys.length !== 1) {
-                throw new Error("One YAML line parsed to multiple keys.");
+            const keyMatch = line.match(
+                /^(["']?)([^"':#][^:]*?)\1\s*:(?:\s|$)/
+            );
+            if (!keyMatch) {
+                newFrontmatter.push(line);
+                continue;
             }
-            const key = keys[0];
+            const key = keyMatch[2] as keyof OFCEvent;
             linesAdded.add(key);
             const newVal: PrintableAtom | undefined | null = modifications[key];
             if (newVal === null) {

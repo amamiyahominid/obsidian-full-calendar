@@ -39,7 +39,7 @@ function mountMemoPage(
     view: HTMLElement,
     openBtn: HTMLElement
 ): MemoPanel | null {
-    let path: string | null = todayNotePath();
+    let path: string | null = todayNotePath(plugin);
     const file = () => {
         const f = path ? plugin.app.vault.getAbstractFileByPath(path) : null;
         return f instanceof TFile ? f : null;
@@ -113,7 +113,7 @@ function mountMemoPage(
             warned = false;
             original = now;
             saved = text;
-            path = todayNotePath();
+            path = todayNotePath(plugin);
             openBtn.toggle(!!path);
         });
         return saving;
@@ -152,7 +152,7 @@ function mountMemoPage(
 
     let timer: number | null = null;
     const onChange = (f: { path: string }) => {
-        if (f.path !== todayNotePath()) {
+        if (f.path !== todayNotePath(plugin)) {
             return;
         }
         if (timer !== null) {
@@ -463,7 +463,7 @@ export function renderMemoPanel(
     // "create" covers the day's note appearing after the panel was drawn.
     let timer: number | null = null;
     const onChange = (file: { path: string }) => {
-        if (edit || file.path !== todayNotePath()) {
+        if (edit || file.path !== todayNotePath(plugin)) {
             return;
         }
         if (timer !== null) {

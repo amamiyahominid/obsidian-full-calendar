@@ -1,15 +1,13 @@
 import { Notice, TFile } from "obsidian";
 import { DateTime } from "luxon";
-import moment from "moment";
-import {
-    appHasDailyNotesPluginLoaded,
-    createDailyNote,
-    getAllDailyNotes,
-    getDailyNote,
-    getDailyNoteSettings,
-    getDateFromFile,
-} from "obsidian-daily-notes-interface";
 import type FullCalendarPlugin from "../main";
+import {
+    createDaily,
+    dailyFile,
+    dateOfFile,
+    getDailySettings,
+    todayISO,
+} from "../core/dailyService";
 import { confirmPlan, fillPlan, routineFor } from "../core/plan";
 
 /*
@@ -20,12 +18,10 @@ import { confirmPlan, fillPlan, routineFor } from "../core/plan";
 // The routine lives beside the daily notes, under this name.
 const ROUTINE_NOTE = "routine";
 
-const dateOf = (file: TFile): string | null =>
-    // @ts-ignore — the interface's own TFile type
-    getDateFromFile(file, "day")?.format("YYYY-MM-DD") ?? null;
+const dateOf = (file: TFile): string | null => dateOfFile(file);
 
 function routineFile(plugin: FullCalendarPlugin): TFile | null {
-    const folder = (getDailyNoteSettings().folder ?? "").replace(/\/+$/, "");
+    const folder = getDailySettings().folder;
     const path = `${folder ? folder + "/" : ""}${ROUTINE_NOTE}.md`;
     const file = plugin.app.vault.getAbstractFileByPath(path);
     return file instanceof TFile ? file : null;
@@ -66,7 +62,7 @@ export function targetDailyNote(plugin: FullCalendarPlugin): TFile | null {
     if (active && dateOf(active)) {
         return active;
     }
-    return (getDailyNote(moment(), getAllDailyNotes()) as TFile) ?? null;
+    return dailyFile(plugin.io, todayISO());
 }
 
 /**
@@ -110,15 +106,12 @@ export async function confirmPlanFor(
 export async function ensureTodayNote(
     plugin: FullCalendarPlugin
 ): Promise<boolean> {
-    if (!appHasDailyNotesPluginLoaded()) {
-        return false;
-    }
-    const today = moment();
-    if (getDailyNote(today, getAllDailyNotes())) {
+    const today = todayISO();
+    if (dailyFile(plugin.io, today)) {
         return false;
     }
     try {
-        await createDailyNote(today);
+        await createDaily(plugin.io, today);
         return true;
     } catch (e) {
         console.error("Full Calendar: could not create today's note.", e);

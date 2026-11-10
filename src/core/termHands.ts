@@ -1,4 +1,11 @@
-import type { App, TFile } from "obsidian";
+import type { TFile } from "obsidian";
+
+/** The file operations this needs; ObsidianInterface satisfies it. */
+export type TermIO = {
+    getMarkdownFiles(): TFile[];
+    getMetadata(file: TFile): { frontmatter?: Record<string, any> } | null;
+    read(file: TFile): Promise<string>;
+};
 
 /*
  * Term hands: the rows of the current term note's table, offered in the
@@ -93,16 +100,16 @@ const isoOf = (v: unknown): string | null => {
 
 /** The term note whose start..end (inclusive) covers `date` (YYYY-MM-DD). */
 export function findTermFile(
-    app: App,
+    io: TermIO,
     folder: string,
     date: string
 ): TFile | null {
     const prefix = folder.replace(/\/+$/, "") + "/";
-    for (const file of app.vault.getMarkdownFiles()) {
+    for (const file of io.getMarkdownFiles()) {
         if (!file.path.startsWith(prefix)) {
             continue;
         }
-        const fm = app.metadataCache.getFileCache(file)?.frontmatter;
+        const fm = io.getMetadata(file)?.frontmatter;
         const start = isoOf(fm?.start);
         const end = isoOf(fm?.end);
         if (start && end && start <= date && date <= end) {
@@ -113,16 +120,16 @@ export function findTermFile(
 }
 
 export async function termHandsFor(
-    app: App,
+    io: TermIO,
     folder: string,
     date: string
 ): Promise<TermHand[]> {
     if (!folder.trim()) {
         return [];
     }
-    const file = findTermFile(app, folder.trim(), date);
+    const file = findTermFile(io, folder.trim(), date);
     if (!file) {
         return [];
     }
-    return parseTermHands(await app.vault.cachedRead(file));
+    return parseTermHands(await io.read(file));
 }

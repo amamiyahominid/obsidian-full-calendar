@@ -34,23 +34,10 @@ export interface FullCalendarSettings {
     };
     timeFormat24h: boolean;
     clickToCreateEventFromMonthView: boolean;
-    // Folder auto-registered as a "Full note" calendar source. Pointed at a
-    // projects root, each direct child's tasks/ subfolder is registered
-    // instead (template skipped) — see autoTaskFolderCandidates(). Empty
-    // string disables the feature.
-    autoTaskFolder: string;
-    // Folder of dateless issue notes (status-only frontmatter). Registered as
-    // a calendar source automatically like autoTaskFolder, but its cards live
-    // on the kanban's Issue axis — never mixed in with project tasks, the
-    // tray, or the sprint board. Empty string disables the feature.
-    issuesFolder: string;
     // Folder of term notes (frontmatter `start`/`end`, a table with a 手
     // column). The term covering a selected day offers its hands in the
     // session picker. Empty string disables the feature.
     termFolder: string;
-    // Auto-folders the user manually removed from the calendar list — never
-    // re-added automatically until they re-select the folder in settings.
-    dismissedAutoFolders: string[];
     // Fire a native OS notification before timed events start. Desktop-only.
     enableReminders: boolean;
     // How many minutes before an event's start to notify.
@@ -103,10 +90,7 @@ export const DEFAULT_SETTINGS: FullCalendarSettings = {
     },
     timeFormat24h: false,
     clickToCreateEventFromMonthView: true,
-    autoTaskFolder: "",
-    issuesFolder: "",
     termFolder: "20_journal/term",
-    dismissedAutoFolders: [],
     enableReminders: false,
     reminderMinutesBefore: 10,
     kanbanFilters: {
@@ -345,71 +329,6 @@ export class FullCalendarSettingTab extends PluginSettingTab {
             });
 
         new Setting(containerEl)
-            .setName("Auto-managed Task Folder")
-            .setDesc(
-                "Register this folder as a Full note calendar automatically. " +
-                    "Point it at a projects root and every direct child's " +
-                    "tasks/ subfolder is registered instead — new projects " +
-                    "join the calendar just by existing (template is " +
-                    "skipped). Removing one from the calendar list below " +
-                    "won't bring it back; re-select the folder here to " +
-                    "re-enable."
-            )
-            .addDropdown((dropdown) => {
-                dropdown.addOption("", "(None)");
-                this.app.vault
-                    .getAllLoadedFiles()
-                    .filter((f) => f instanceof TFolder)
-                    .forEach((f) => dropdown.addOption(f.path, f.path));
-                dropdown.setValue(this.plugin.settings.autoTaskFolder || "");
-                dropdown.onChange(async (folder) => {
-                    this.plugin.settings.autoTaskFolder = folder;
-                    if (folder) {
-                        // Re-selecting clears prior dismissals for the folder
-                        // and anything beneath it (per-project tasks dirs).
-                        this.plugin.settings.dismissedAutoFolders =
-                            this.plugin.settings.dismissedAutoFolders.filter(
-                                (p) =>
-                                    p !== folder && !p.startsWith(folder + "/")
-                            );
-                        this.plugin.syncAutoTaskFolder();
-                    }
-                    await this.plugin.saveSettings();
-                    this.display();
-                });
-            });
-
-        new Setting(containerEl)
-            .setName("Issues Folder")
-            .setDesc(
-                "Register this folder's status-bearing notes as issues. " +
-                    "They get their own Issue axis on the kanban instead of " +
-                    "mixing with project tasks, and stay out of the tray and " +
-                    "sprint planning. Notes named 'template' are skipped."
-            )
-            .addDropdown((dropdown) => {
-                dropdown.addOption("", "(None)");
-                this.app.vault
-                    .getAllLoadedFiles()
-                    .filter((f) => f instanceof TFolder)
-                    .forEach((f) => dropdown.addOption(f.path, f.path));
-                dropdown.setValue(this.plugin.settings.issuesFolder || "");
-                dropdown.onChange(async (folder) => {
-                    this.plugin.settings.issuesFolder = folder;
-                    if (folder) {
-                        // Re-selecting clears a prior dismissal of the folder.
-                        this.plugin.settings.dismissedAutoFolders =
-                            this.plugin.settings.dismissedAutoFolders.filter(
-                                (p) => p !== folder
-                            );
-                        this.plugin.syncAutoTaskFolder();
-                    }
-                    await this.plugin.saveSettings();
-                    this.display();
-                });
-            });
-
-        new Setting(containerEl)
             .setName("Term Folder")
             .setDesc(
                 "Term notes with start/end frontmatter and a table with a " +
@@ -580,21 +499,6 @@ export class FullCalendarSettingTab extends PluginSettingTab {
             createElement(CalendarSettings, {
                 sources: this.plugin.settings.calendarSources,
                 submit: async (settings: CalendarInfo[]) => {
-                    // If the user removed an auto-managed folder, remember the
-                    // dismissal so it isn't re-added on next launch.
-                    for (const dir of this.plugin.autoFolderCandidates()) {
-                        const stillPresent = settings.some(
-                            (s) => s.type === "local" && s.directory === dir
-                        );
-                        if (
-                            !stillPresent &&
-                            !this.plugin.settings.dismissedAutoFolders.includes(
-                                dir
-                            )
-                        ) {
-                            this.plugin.settings.dismissedAutoFolders.push(dir);
-                        }
-                    }
                     this.plugin.settings.calendarSources = settings;
                     await this.plugin.saveSettings();
                 },

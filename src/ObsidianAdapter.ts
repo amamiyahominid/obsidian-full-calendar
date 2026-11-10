@@ -34,6 +34,12 @@ export interface ObsidianInterface {
     createFolder(path: string): Promise<void>;
 
     /**
+     * The text of a file in the vault's configuration folder (e.g.
+     * "daily-notes.json"), or null when there is no such file.
+     */
+    readConfigFile(name: string): Promise<string | null>;
+
+    /**
      * @param file file to get metadata for.
      * Get the Obsidian-parsed metadata for the given file.
      */
@@ -134,6 +140,16 @@ export class ObsidianIO implements ObsidianInterface {
 
     async createFolder(path: string): Promise<void> {
         await this.vault.createFolder(path);
+    }
+
+    async readConfigFile(name: string): Promise<string | null> {
+        try {
+            return await this.vault.adapter.read(
+                `${this.vault.configDir}/${name}`
+            );
+        } catch {
+            return null;
+        }
     }
 
     rename(file: TFile, newPath: string): Promise<void> {

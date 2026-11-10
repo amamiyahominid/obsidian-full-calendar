@@ -7,7 +7,6 @@ import {
 } from "./memo";
 
 jest.mock("obsidian", () => ({ TFile: class {} }), { virtual: true });
-jest.mock("obsidian-daily-notes-interface", () => ({}));
 
 const NOTE = [
     "## TODO",

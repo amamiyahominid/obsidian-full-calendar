@@ -43,10 +43,13 @@ import {
     startOrStop,
 } from "./core/today";
 import { pickTrayTask } from "./ui/taskPicker";
+import { loadDailySettings } from "./core/dailyService";
+import { setNotifier } from "./core/notify";
 import NoteKindCalendar, { isSetAside } from "./calendars/NoteKindCalendar";
 
 // The issues calendar's id (see NoteKindCalendar.identifier).
 const ISSUES_SOURCE_ID = "local::kind/issue";
+const ISSUES_COLOR = "#d06f2a";
 import { collectTaskCards } from "./core/cards";
 import { DateTime } from "luxon";
 import {
@@ -58,7 +61,7 @@ import {
 } from "./ui/planActions";
 import EventCache, { UpdateViewCallback } from "./core/EventCache";
 import { rollTodosForward } from "./core/todoRollover";
-import ReminderService from "./core/ReminderService";
+import ReminderService from "./ui/ReminderService";
 import { ObsidianIO } from "./ObsidianAdapter";
 import {
     configureStatuses,
@@ -87,6 +90,10 @@ function withPlanSource(sources: CalendarInfo[]): CalendarInfo[] {
 
 export default class FullCalendarPlugin extends Plugin {
     settings: FullCalendarSettings = DEFAULT_SETTINGS;
+    // The vault, as the narrow set of file operations the core is written
+    // against (see ObsidianInterface).
+    io: ObsidianIO = new ObsidianIO(this.app);
+
     cache: EventCache = new EventCache({
         local: (info) =>
             info.type === "local"
@@ -319,7 +326,12 @@ export default class FullCalendarPlugin extends Plugin {
     }
 
     async onload() {
+        // What the core has to say is shown as Obsidian's toasts.
+        setNotifier((message) => new Notice(message));
         await this.loadSettings();
+        // Where daily notes live comes from the vault's own daily-notes
+        // settings; everything that reads a daily note needs it first.
+        await loadDailySettings(this.io);
 
         // Migrate existing sources to the current color palette before the
         // first cache build. Persist with saveData (not saveSettings) to
@@ -336,37 +348,6 @@ export default class FullCalendarPlugin extends Plugin {
         // the user asks. Only the task-`actual` reconcile runs at startup.
         this.app.workspace.onLayoutReady(async () => {
             try {
-                // Auto-task folders can only be resolved once the vault
-                // index is complete — at onload the projects root still
-                // looks childless and the fallback would register the root
-                // itself instead of each project's tasks/.
-                if (this.syncAutoTaskFolder()) {
-                    await this.saveData(this.settings);
-                    this.resetCache();
-                }
-                // Auto-register task folders created later: the configured
-                // root, or any folder beneath it (a new project's tasks/
-                // joins the calendar the moment it exists). Registered here
-                // rather than at onload — the initial index fires `create`
-                // for every existing file.
-                this.registerEvent(
-                    this.app.vault.on("create", (file) => {
-                        const auto = this.settings.autoTaskFolder?.trim();
-                        const issues = this.settings.issuesFolder?.trim();
-                        const relevant =
-                            (auto &&
-                                (file.path === auto ||
-                                    file.path.startsWith(auto + "/"))) ||
-                            (issues && file.path === issues);
-                        if (
-                            relevant &&
-                            file instanceof TFolder &&
-                            this.syncAutoTaskFolder()
-                        ) {
-                            this.saveSettings();
-                        }
-                    })
-                );
                 // A new daily note starts with the routine's blocks in its
                 // Plan. Waits a moment so whatever created the note (the
                 // daily-notes template, a sync) has finished writing it;
@@ -720,6 +701,43 @@ export default class FullCalendarPlugin extends Plugin {
         // module registry so pure helpers can read them without a plugin
         // handle; keep it in sync with settings.
         configureStatuses(this.settings.statuses, this.settings.uncheckStatus);
+        if (this.retireFolderSettings()) {
+            await this.saveData(this.settings);
+        }
+    }
+
+    /**
+     * Settings from before tasks and issues were found by `kind`: the
+     * per-project task folders and the issues folder saved as calendar
+     * sources, and the keys that managed them. Dropped once, on load;
+     * returns whether anything was (so the caller saves).
+     */
+    private retireFolderSettings(): boolean {
+        const old = this.settings as unknown as Record<string, unknown>;
+        const issuesFolder =
+            typeof old.issuesFolder === "string" ? old.issuesFolder.trim() : "";
+        const before = this.settings.calendarSources.length;
+        this.settings.calendarSources = this.settings.calendarSources.filter(
+            (s) =>
+                !(
+                    s.type === "local" &&
+                    (s.directory.endsWith("/tasks") ||
+                        (issuesFolder !== "" && s.directory === issuesFolder))
+                )
+        );
+        let changed = this.settings.calendarSources.length !== before;
+        for (const key of [
+            "autoTaskFolder",
+            "issuesFolder",
+            "dismissedAutoFolders",
+            "trayOrder",
+        ]) {
+            if (key in old) {
+                delete old[key];
+                changed = true;
+            }
+        }
+        return changed;
     }
 
     async saveSettings() {
@@ -781,54 +799,6 @@ export default class FullCalendarPlugin extends Plugin {
     }
 
     /**
-     * Directories the auto-task-folder setting wants registered. Pointed at
-     * a projects root (e.g. "30_projects"), that is each direct child's
-     * `tasks` subfolder — new projects join the calendar just by existing.
-     * `template` is skipped by convention (same as the quickadd script).
-     * A folder with no such children falls back to the original mode:
-     * the selected folder itself is the one candidate.
-     */
-    autoTaskFolderCandidates(): string[] {
-        const folder = this.settings.autoTaskFolder?.trim();
-        if (!folder) {
-            return [];
-        }
-        const root = this.app.vault.getAbstractFileByPath(folder);
-        if (!(root instanceof TFolder)) {
-            return [];
-        }
-        const candidates: string[] = [];
-        for (const child of root.children) {
-            if (!(child instanceof TFolder) || child.name === "template") {
-                continue;
-            }
-            const tasks = this.app.vault.getAbstractFileByPath(
-                `${child.path}/tasks`
-            );
-            if (tasks instanceof TFolder) {
-                candidates.push(tasks.path);
-            }
-        }
-        return candidates.length > 0 ? candidates : [folder];
-    }
-
-    /**
-     * Every folder auto-registration manages: the task folder candidates
-     * plus the issues folder, when configured and present in the vault.
-     */
-    autoFolderCandidates(): string[] {
-        const candidates = this.autoTaskFolderCandidates();
-        const issues = this.settings.issuesFolder?.trim();
-        if (
-            issues &&
-            this.app.vault.getAbstractFileByPath(issues) instanceof TFolder
-        ) {
-            candidates.push(issues);
-        }
-        return candidates;
-    }
-
-    /**
      * The calendar source id the issues folder registers under, or null when
      * the feature is off. Card collectors use this to keep issues off the
      * task board/tray and on the kanban's Issue axis.
@@ -868,37 +838,23 @@ export default class FullCalendarPlugin extends Plugin {
                 color,
             });
         }
-        const issuesFolder = this.settings.issuesFolder?.trim();
-        const savedIssues = this.settings.calendarSources.find(
-            (s) => s.type === "local" && s.directory === issuesFolder
-        );
         return [
             ...projects,
-            {
-                type: "notes",
-                kind: "issue",
-                color: savedIssues?.color ?? "#d06f2a",
-            },
+            { type: "notes", kind: "issue", color: ISSUES_COLOR },
         ];
     }
 
     /**
      * Every calendar the cache should hold: the derived ones first (so a
-     * project is what the create dialog offers by default), then the saved
-     * ones that aren't note folders the derived ones replace — task folders
-     * and the issues folder are no longer read by path — plus Plan.
+     * project is what the create dialog offers by default), then the ones
+     * set up in settings (other calendars, the daily note's headings), plus
+     * Plan.
      */
     private effectiveSources(): CalendarInfo[] {
-        const issuesFolder = this.settings.issuesFolder?.trim();
-        const saved = this.settings.calendarSources.filter(
-            (s) =>
-                !(
-                    s.type === "local" &&
-                    (s.directory.endsWith("/tasks") ||
-                        s.directory === issuesFolder)
-                )
-        );
-        return withPlanSource([...this.derivedSources(), ...saved]);
+        return withPlanSource([
+            ...this.derivedSources(),
+            ...this.settings.calendarSources,
+        ]);
     }
 
     // What the derived calendars were built from, to tell when the vault's
@@ -929,19 +885,5 @@ export default class FullCalendarPlugin extends Plugin {
             await this.cache.populate();
             this.cache.resync();
         }, 500);
-    }
-
-    /**
-     * Reconcile the auto-managed folders (task folders + issues folder)
-     * against the calendar sources: every candidate that exists, isn't
-     * registered, and hasn't been dismissed by the user gets a "local"
-     * source with the next palette color. Mutates settings in place and
-     * returns whether anything changed (caller persists).
-     */
-    syncAutoTaskFolder(): boolean {
-        // Retired: task folders and the issues folder are no longer
-        // registered by path. Tasks and issues are found by `kind`
-        // (see derivedSources); nothing is added to the saved sources.
-        return false;
     }
 }

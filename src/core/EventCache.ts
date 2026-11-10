@@ -1,4 +1,5 @@
-import { Notice, TFile } from "obsidian";
+import type { TFile } from "obsidian";
+import { notify } from "./notify";
 import equal from "deep-equal";
 
 import { Calendar, EventResponse } from "../calendars/Calendar";
@@ -218,7 +219,7 @@ export default class EventCache {
      */
     private scheduleLoadRetry(calendars: Calendar[]): void {
         if (this.populateRetries >= 5) {
-            new Notice(
+            notify(
                 "Full Calendar: some calendars failed to load. Check the developer console for details."
             );
             return;
@@ -775,7 +776,7 @@ export default class EventCache {
                 result.status === "rejected" ? result.reason : []
             );
             if (errors.length > 0) {
-                new Notice(
+                notify(
                     "A remote calendar failed to load. Check the console for more details."
                 );
                 errors.forEach((reason) => {
