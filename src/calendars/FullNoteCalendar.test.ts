@@ -195,6 +195,46 @@ describe("Note Calendar Tests", () => {
         `);
     });
 
+    it("creates a task with its kind and project, and only a task's keys", async () => {
+        const obsidian = makeApp(
+            MockAppBuilder.make()
+                .folder(
+                    new MockAppBuilder("01_proj")
+                        .file("proj.md", new FileBuilder().frontmatter({}))
+                        .folder(new MockAppBuilder("tasks"))
+                )
+                .done()
+        );
+        const calendar = new FullNoteCalendar(obsidian, color, "01_proj/tasks");
+        (obsidian.create as jest.Mock).mockReturnValue({
+            path: "01_proj/tasks/2026-11-10 Fix it.md",
+        });
+        await calendar.createEvent(
+            parseEvent({
+                title: "Fix it",
+                date: "2026-11-10",
+                allDay: true,
+                completed: false,
+                status: "Backlog",
+                sprint: "2026-W46",
+            })
+        );
+        expect((obsidian.create as jest.Mock).mock.calls[0]).toEqual([
+            "01_proj/tasks/2026-11-10 Fix it.md",
+            [
+                "---",
+                "kind: task",
+                "title: Fix it",
+                "date: 2026-11-10",
+                "status: Backlog",
+                'project: "[[proj]]"',
+                "sprint: 2026-W46",
+                "---",
+                "",
+            ].join("\n"),
+        ]);
+    });
+
     it("cannot overwrite event", async () => {
         const event = {
             title: "Test Event",

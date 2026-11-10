@@ -109,6 +109,42 @@ function newFrontmatter(fields: Partial<OFCEvent>): string {
     );
 }
 
+/**
+ * Frontmatter for a new task note, as docs/format.md lays it out: its kind,
+ * the project it belongs to (a link, not its folder), and only the keys a
+ * task has. The calendar-event keys a task never uses (type, allDay,
+ * endDate, completed, times) are left out, and so is logged time — that is
+ * counted from the daily notes' Log.
+ */
+function taskFrontmatter(
+    event: Extract<OFCEvent, { type: "single" }>,
+    projectNote: string | null
+): string {
+    const fields: [string, PrintableAtom | undefined | null][] = [
+        ["kind", "task"],
+        ["title", event.title],
+        ["date", event.date],
+        ["status", event.status],
+        // Quoted: a bare [[…]] is a nested list to YAML, not a link.
+        ["project", projectNote ? `"[[${projectNote}]]"` : null],
+        ["sprint", event.sprint],
+        ["due", event.due],
+        ["link", event.link],
+        ["estimate", event.estimate],
+    ];
+    return (
+        "---\n" +
+        fields
+            .flatMap(([k, v]) =>
+                v === undefined || v === null || v === ""
+                    ? []
+                    : [stringifyYamlLine(k, v)]
+            )
+            .join("\n") +
+        "\n---\n"
+    );
+}
+
 function modifyFrontmatterString(
     page: string,
     modifications: Partial<OFCEvent>
@@ -269,8 +305,40 @@ export default class FullNoteCalendar extends EditableCalendar {
         if (this.app.getAbstractFileByPath(path)) {
             throw new Error(`Event at ${path} already exists.`);
         }
-        const file = await this.app.create(path, newFrontmatter(event));
+        // A note with a status is a task (or an issue); everything else is
+        // a plain calendar event and keeps the event keys.
+        const isWorkflow =
+            (event.type === undefined || event.type === "single") &&
+            event.status !== undefined;
+        const file = await this.app.create(
+            path,
+            isWorkflow && this.directory.endsWith("/tasks")
+                ? taskFrontmatter(
+                      event as Extract<OFCEvent, { type: "single" }>,
+                      this.projectNoteName()
+                  )
+                : newFrontmatter(event)
+        );
         return { file, lineNumber: undefined };
+    }
+
+    /**
+     * The project this task folder belongs to: the one note that sits
+     * directly in the folder above `tasks/`. Null when there isn't exactly
+     * one — the task is then written without a project rather than with a
+     * guess.
+     */
+    private projectNoteName(): string | null {
+        const parent = this.app.getAbstractFileByPath(
+            this.directory.replace(/\/tasks$/, "")
+        );
+        if (!(parent instanceof TFolder)) {
+            return null;
+        }
+        const notes = parent.children.filter(
+            (f): f is TFile => f instanceof TFile && f.extension === "md"
+        );
+        return notes.length === 1 ? notes[0].basename : null;
     }
 
     getNewLocation(

@@ -6,7 +6,7 @@ import { Card, collectTaskCards, projectLabel } from "../core/cards";
 import { moveCardToStatus } from "./kanban";
 import { dueBadge, sprintBucket, weekOf } from "./sprint";
 import { openFileForEvent } from "./actions";
-import { launchEditModal } from "./event_modal";
+import { launchCreateModal, launchEditModal } from "./event_modal";
 import { toggleTask } from "./tasks";
 import {
     getStatusColor,
@@ -822,10 +822,25 @@ export function renderTaskTray(
                 : null,
         });
 
-        weekEl.createDiv({
-            cls: "ofc-tray-section",
-            text: `今週 · ${weekOf(0)}`,
+        const weekHead = weekEl.createDiv({ cls: "ofc-tray-section" });
+        weekHead.createSpan({ text: `今週 · ${weekOf(0)}` });
+        // A new task for this week, straight from where the week is read.
+        const addBtn = weekHead.createEl("button", {
+            cls: "ofc-row-btn ofc-row-btn-quiet",
         });
+        setIcon(addBtn, "plus");
+        addBtn.setAttr("aria-label", "タスクを足す");
+        addBtn.onclick = (ev) => {
+            ev.stopPropagation();
+            launchCreateModal(plugin, {
+                type: "single",
+                allDay: true,
+                date: today,
+                completed: false,
+                status: workflowStages()[0],
+                sprint: weekOf(0),
+            });
+        };
 
         // --- Status groups: every stage in kanban order — INCLUDING empty
         // ones, so any stage is always available as a drag-and-drop target —
