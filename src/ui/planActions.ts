@@ -2,6 +2,8 @@ import { Notice, TFile } from "obsidian";
 import { DateTime } from "luxon";
 import moment from "moment";
 import {
+    appHasDailyNotesPluginLoaded,
+    createDailyNote,
     getAllDailyNotes,
     getDailyNote,
     getDailyNoteSettings,
@@ -97,6 +99,31 @@ export async function confirmPlanFor(
     }
     await plugin.app.vault.modify(file, next);
     new Notice(`${date}：Plan の枠を ${moved} 本、Log に写しました。`);
+}
+
+/**
+ * Make sure today has a daily note, creating it from the daily-notes
+ * template when it doesn't. The note is not opened. Its Plan is then filled
+ * by the same "a daily note was created" path as any other new note.
+ * Returns true when a note was created.
+ */
+export async function ensureTodayNote(
+    plugin: FullCalendarPlugin
+): Promise<boolean> {
+    if (!appHasDailyNotesPluginLoaded()) {
+        return false;
+    }
+    const today = moment();
+    if (getDailyNote(today, getAllDailyNotes())) {
+        return false;
+    }
+    try {
+        await createDailyNote(today);
+        return true;
+    } catch (e) {
+        console.error("Full Calendar: could not create today's note.", e);
+        return false;
+    }
 }
 
 export { dateOf as dailyDateOf };

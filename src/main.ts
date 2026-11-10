@@ -1,4 +1,11 @@
-import { MarkdownView, Notice, Plugin, TFile, TFolder } from "obsidian";
+import {
+    MarkdownView,
+    Notice,
+    Platform,
+    Plugin,
+    TFile,
+    TFolder,
+} from "obsidian";
 import {
     CalendarView,
     FULL_CALENDAR_SIDEBAR_VIEW_TYPE,
@@ -23,6 +30,7 @@ import { LOG_HEADING, PLAN_HEADING } from "./core/worklog";
 import {
     confirmPlanFor,
     dailyDateOf,
+    ensureTodayNote,
     fillPlanFor,
     targetDailyNote,
 } from "./ui/planActions";
@@ -256,6 +264,21 @@ export default class FullCalendarPlugin extends Plugin {
                         }, 1500);
                     })
                 );
+                // Today always has its note: created a little after start-up
+                // and, for an app left open overnight, soon after midnight.
+                // Desktop only — a phone opened in the morning hasn't synced
+                // yet, and creating the same day's note on two devices
+                // leaves a conflict copy. The wait gives sync a head start
+                // here too.
+                if (!Platform.isMobile) {
+                    window.setTimeout(() => ensureTodayNote(this), 10 * 1000);
+                    this.registerInterval(
+                        window.setInterval(
+                            () => ensureTodayNote(this),
+                            5 * 60 * 1000
+                        )
+                    );
+                }
                 await this.cache.populate();
                 await reconcileActuals(this);
             } catch (e) {
